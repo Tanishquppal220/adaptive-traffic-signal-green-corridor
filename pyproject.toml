@@ -7,7 +7,12 @@ requires-python = ">=3.13"
 dependencies = [
     # Computer vision — use headless build (no X11 GUI libs) inside container
     "opencv-python-headless>=4.10",
-    # YOLOv8 — pulls in torch/torchvision automatically
+    # YOLOv8 — torch/torchvision are pinned below to CPU-only builds so that
+    # `uv sync` in GitHub Codespaces (no GPU) does not pull nvidia-*-cu12 wheels.
+    # See uv.toml for the matching pytorch-cpu index declaration.
+    # To switch to a CUDA build, remove the +cpu pins here and in uv.toml.
+    "torch==2.5.1+cpu",
+    "torchvision==0.20.1+cpu",
     "ultralytics>=8.3",
     # Arduino / serial hardware interface
     "pyserial>=3.5",
@@ -23,6 +28,12 @@ prediction = [
     "scikit-learn>=1.5",
     "xgboost>=2.0",
 ]
+
+# Route torch/torchvision to the CPU-only PyTorch wheel index so that uv
+# never resolves the CUDA/nvidia variants in GPU-less environments like Codespaces.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+torchvision = [{ index = "pytorch-cpu" }]
 
 [tool.ruff]
 line-length = 100

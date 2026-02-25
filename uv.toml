@@ -1,0 +1,26 @@
+# uv.toml — project-level uv configuration
+#
+# Why this file exists:
+#   GitHub Codespaces (and most CI environments) have no GPU.  Without an
+#   explicit CPU index, `uv sync` resolves `torch` to the default PyPI entry
+#   which pulls in large CUDA/NVIDIA wheels (nvidia-cudnn-cu12, nvidia-cublas-cu12,
+#   nvidia-nccl-cu12, …) that are 1–2 GB and completely unnecessary here.
+#
+# How it works:
+#   * We declare the official PyTorch CPU-only index below with `explicit = true`.
+#     That flag means uv will ONLY look at this index for packages that explicitly
+#     reference it (via [tool.uv.sources] in pyproject.toml), leaving all other
+#     packages to resolve from PyPI as usual.
+#   * `pyproject.toml` pins torch==2.5.1+cpu and torchvision==0.20.1+cpu and
+#     points them at the "pytorch-cpu" index through [tool.uv.sources].
+#
+# To switch to a CUDA build:
+#   1. Remove or update the +cpu pins in pyproject.toml dependencies.
+#   2. Remove the torch/torchvision entries from [tool.uv.sources] in pyproject.toml.
+#   3. Replace this index URL with the matching CUDA index, e.g.:
+#      https://download.pytorch.org/whl/cu121
+
+[[index]]
+name = "pytorch-cpu"
+url  = "https://download.pytorch.org/whl/cpu"
+explicit = true
