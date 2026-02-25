@@ -26,18 +26,5 @@ ENV UV_PYTHON_PREFERENCE=only-system \
 
 WORKDIR /workspace
 
-# Copy dependency manifest first so layer is cached unless deps change
-COPY pyproject.toml ./
-# Create an empty uv.lock so uv sync works on a fresh checkout
-RUN uv lock --check 2>/dev/null || uv lock
-
-# Install project dependencies (no editable install yet — done at runtime)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-install-project
-
 # Copy source
 COPY . .
-
-# Install the project itself in editable mode
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync
