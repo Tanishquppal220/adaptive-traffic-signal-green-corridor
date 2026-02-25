@@ -1,7 +1,9 @@
 # Roadmap
 
 ## Project Goal (End-of-Month MVP)
+
 A demo that shows, on **real video or live camera** (even 1 camera is fine):
+
 1) **Vehicle detection + per-lane counts**  
 2) **Adaptive signal timing** (green time changes based on density)  
 3) **Emergency detection trigger** (ambulance OR siren OR manual override)  
@@ -46,12 +48,15 @@ You can still keep LSTM + DQN in the roadmap, but they are **not required for a 
 ---
 
 ## Week 2 (Days 8–14): Adaptive signal control (no RL yet) + Arduino LEDs
+
 ### Deliverables
+
 - Signal controller working in software (state machine)
 - Arduino-controlled LEDs show correct phase transitions
 - Density-based green time adaptation
 
 ### Tasks
+
 1. **Signal state machine**
    - Phases: `NS_GREEN`, `NS_YELLOW`, `EW_GREEN`, `EW_YELLOW`
    - Min/max green bounds (e.g., 10s–60s)
@@ -71,21 +76,28 @@ You can still keep LSTM + DQN in the roadmap, but they are **not required for a 
 ---
 
 ## Week 3 (Days 15–21): Emergency priority + Green corridor mode (core novelty)
+
 ### Deliverables
+
 - Emergency detection trigger works (choose at least 1 reliable method)
 - Green corridor sequence demonstrated across multiple intersections (simulated or hardware)
 
 ### Choose emergency trigger (pick 1 now, add others later)
+
 **Option A (fastest & reliable): manual override**
+
 - Press a GUI button / keyboard key → corridor mode.
 
 **Option B (vision): ambulance detection**
+
 - If dataset lacks ambulances, use pretrained + quick fine-tune with a small custom ambulance set.
 
 **Option C (audio): siren detection**
+
 - KY-037 is noisy; best to treat audio as *support signal*, not sole trigger.
 
 ### Corridor logic (must be explicit)
+
 - Maintain a list of intersections along a route: `I1 -> I2 -> I3`
 - When emergency active:
   - Force “green wave” along route
@@ -97,13 +109,16 @@ You can still keep LSTM + DQN in the roadmap, but they are **not required for a 
 ---
 
 ## Week 4 (Days 22–30): GUI + polish + performance + documentation + final demo
+
 ### Deliverables
+
 - Simple dashboard (Tkinter or Flask)
 - Demo script + recorded results
 - Documentation good enough for submission/patent draft
 - Optional: add LSTM predictor (if time)
 
 ### Tasks
+
 1. **GUI (keep minimal)**
    - Live counts
    - Current signal phase + time remaining
@@ -128,7 +143,9 @@ You can still keep LSTM + DQN in the roadmap, but they are **not required for a 
 ---
 
 ## What to DEFER (so you finish in 1 month)
+
 To hit the deadline, postpone these unless you’re ahead:
+
 - Full DQN training (very time-consuming + needs simulation)
 - Multi-camera (start with 1 camera, then expand)
 - Full sensor fusion with ultrasonic/IR validation (nice-to-have)
@@ -137,6 +154,7 @@ To hit the deadline, postpone these unless you’re ahead:
 ---
 
 ## 3 Clarifying Questions (so I can tailor the plan precisely)
+
 1) Are you required to run the final demo on **Raspberry Pi**, or is **laptop + Arduino** acceptable for this month?  
 2) How many intersections do you need to demonstrate for “green corridor”: **2** is enough for proof—do you need more?  
 3) Do you already have **any ambulance-labeled images**, or should we rely on **manual trigger + siren** for MVP?

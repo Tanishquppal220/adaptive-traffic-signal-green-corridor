@@ -1,7 +1,41 @@
 [project]
 name = "adaptive-traffic-signal-green-corridor"
 version = "0.1.0"
-description = "Add your description here"
+description = "Adaptive traffic signal control with green corridor and emergency preemption"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    # Computer vision — use headless build (no X11 GUI libs) inside container
+    "opencv-python-headless>=4.10",
+    # YOLOv8 — pulls in torch/torchvision automatically
+    "ultralytics>=8.3",
+    # Arduino / serial hardware interface
+    "pyserial>=3.5",
+    # Web dashboard (Week 4)
+    "flask>=3.0",
+    # Numerical + data handling
+    "numpy>=2.0",
+]
+
+[project.optional-dependencies]
+prediction = [
+    # Optional LSTM / XGBoost predictor (Week 4)
+    "scikit-learn>=1.5",
+    "xgboost>=2.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

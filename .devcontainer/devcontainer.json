@@ -1,0 +1,62 @@
+{
+  "name": "Adaptive Traffic Signal — Green Corridor",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+
+  // Give the container enough memory for YOLO inference
+  "hostRequirements": {
+    "memory": "8gb"
+  },
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "editor.formatOnSave": true,
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.autopep8"
+        },
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      },
+      "extensions": [
+        // Python tooling
+        "ms-python.python",
+        "ms-python.pylance",
+        "charliermarsh.ruff",
+        // Git
+        "eamodio.gitlens",
+        // SQLite viewer for the log database
+        "qwtel.sqlite-viewer",
+        // TOML editing (pyproject.toml)
+        "tamasfe.even-better-toml",
+        // Docker/devcontainer awareness
+        "ms-azuretools.vscode-docker",
+        // Jupyter (optional debug cells)
+        "ms-toolsai.jupyter"
+      ]
+    }
+  },
+
+  // Ports used by the project
+  "forwardPorts": [
+    5000, // Flask dashboard (Week 4)
+    8000  // alternative HTTP server
+  ],
+  "portsAttributes": {
+    "5000": { "label": "Dashboard (Flask)", "onAutoForward": "notify" },
+    "8000": { "label": "HTTP server",       "onAutoForward": "silent" }
+  },
+
+  // After the container is created, install the project with uv
+  "postCreateCommand": "uv sync",
+
+  // Keep the venv directory inside the workspace so VS Code can find it
+  "remoteEnv": {
+    "UV_PROJECT_ENVIRONMENT": "/workspace/.venv"
+  },
+
+  "remoteUser": "root"
+}
