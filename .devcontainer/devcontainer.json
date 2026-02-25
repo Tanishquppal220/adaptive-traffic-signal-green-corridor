@@ -19,7 +19,7 @@
         "[python]": {
           "editor.defaultFormatter": "ms-python.autopep8"
         },
-        "terminal.integrated.defaultProfile.linux": "zsh"
+        "terminal.integrated.defaultProfile.linux": "bash"
       },
       "extensions": [
         // Python tooling

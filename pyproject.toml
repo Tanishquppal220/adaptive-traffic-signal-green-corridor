@@ -7,6 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     # Computer vision — use headless build (no X11 GUI libs) inside container
     "opencv-python-headless>=4.10",
+    "pillow>=9.0",
     # YOLOv8 — torch/torchvision are pinned to CPU-only builds so that
     # `uv sync` in GitHub Codespaces (no GPU) does not pull nvidia-*-cu12 wheels.
     # The pytorch-cpu index is declared in uv.toml; [tool.uv.sources] below
@@ -21,6 +22,7 @@ dependencies = [
     "flask>=3.0",
     # Numerical + data handling
     "numpy>=2.0",
+    "pyyaml>=6.0",
     "kaggle>=2.0.0",
 ]
 
