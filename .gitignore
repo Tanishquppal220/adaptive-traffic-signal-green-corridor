@@ -1,0 +1,29 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Data files (don't commit large datasets)
+data/*.mp4
+data/*.avi
+data/*.mov
+data/*.mkv
+data/datasets/
+*.weights
+*.pt
+!yolov8n.pt
+
+# Logs
+*.log
+*.sqlite
+*.db
+
+# OS files
+.DS_Store
+Thumbs.db
