@@ -17,7 +17,7 @@ data/*.mov
 data/*.mkv
 data/datasets/
 *.weights
-*.pt
+# *.pt
 !yolov8n.pt
 .github
 
