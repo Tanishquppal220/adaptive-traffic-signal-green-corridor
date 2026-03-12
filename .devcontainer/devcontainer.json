@@ -17,24 +17,18 @@
         "python.terminal.activateEnvironment": true,
         "editor.formatOnSave": true,
         "[python]": {
-          "editor.defaultFormatter": "ms-python.autopep8"
+          "editor.defaultFormatter": "ms-python.python"
         },
         "terminal.integrated.defaultProfile.linux": "bash"
       },
       "extensions": [
-        // Python tooling
         "ms-python.python",
         "ms-python.pylance",
         "charliermarsh.ruff",
-        // Git
         "eamodio.gitlens",
-        // SQLite viewer for the log database
         "qwtel.sqlite-viewer",
-        // TOML editing (pyproject.toml)
         "tamasfe.even-better-toml",
-        // Docker/devcontainer awareness
         "ms-azuretools.vscode-docker",
-        // Jupyter (optional debug cells)
         "ms-toolsai.jupyter"
       ]
     }
