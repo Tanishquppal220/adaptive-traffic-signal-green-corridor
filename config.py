@@ -11,6 +11,15 @@ PROJECT_ROOT = pathlib.Path(__file__).parent.resolve()
 MODELS_DIR = PROJECT_ROOT / "models"
 
 TRAFFIC_DETECTION_MODEL_PATH = MODELS_DIR / "traffic_detection_yolov8s.pt"
+EMERGENCY_VEHICLE_MODEL_PATH = MODELS_DIR / "emergency_vehicle_cls_yolov8s.pt"
+
+# ── Density prediction models (trained per direction) ──────────────────────────
+DENSITY_PREDICTOR_MODELS = {
+    "N": MODELS_DIR / "density_predictor_N.ubj",
+    "S": MODELS_DIR / "density_predictor_S.ubj",
+    "E": MODELS_DIR / "density_predictor_E.ubj",
+    "W": MODELS_DIR / "density_predictor_W.ubj",
+}
 
 # ── Detection settings ───────────────────────────────────────────────────────
 CONFIDENCE_THRESHOLD: float = 0.5

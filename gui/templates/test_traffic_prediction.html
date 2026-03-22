@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Density Predictor - Model 3 Test</title>
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background: #1a1a1a;
+            color: #eee;
+            margin: 0;
+            padding: 24px;
+        }
+
+        h1 {
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 0.9em;
+            margin-bottom: 24px;
+        }
+
+        a {
+            color: #4fc3f7;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        /* ── Input Section ──────────────────────────────────── */
+        .input-container {
+            background: #2a2a2a;
+            border: 2px dashed #555;
+            border-radius: 10px;
+            padding: 24px;
+            max-width: 600px;
+            margin: 0 auto 32px;
+        }
+
+        .lane-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .lane-input-group {
+            text-align: left;
+        }
+
+        .lane-input-group label {
+            display: block;
+            font-weight: bold;
+            color: #4fc3f7;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+
+        .lane-input-group input[type="number"] {
+            width: 100%;
+            padding: 8px 12px;
+            background: #1a1a1a;
+            border: 1px solid #555;
+            border-radius: 6px;
+            color: #eee;
+            font-size: 1em;
+        }
+
+        .lane-input-group input[type="number"]:focus {
+            outline: none;
+            border-color: #4fc3f7;
+            background: #0d0d0d;
+        }
+
+        .horizon-control {
+            text-align: left;
+            margin-bottom: 16px;
+        }
+
+        .horizon-control label {
+            display: block;
+            font-weight: bold;
+            color: #4fc3f7;
+            margin-bottom: 8px;
+        }
+
+        .horizon-control input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .horizon-display {
+            color: #a5d6a7;
+            font-size: 0.9em;
+            margin-top: 6px;
+        }
+
+        .submit-row {
+            margin: 0;
+        }
+
+        .submit-row button {
+            padding: 12px 40px;
+            font-size: 1em;
+            background: #4caf50;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            width: 100%;
+        }
+
+        .submit-row button:hover {
+            background: #388e3c;
+        }
+
+        /* ── Error Message ──────────────────────────────────– */
+        .error-message {
+            background: #b71c1c;
+            color: #fff;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin: 0 auto 24px;
+            max-width: 600px;
+        }
+
+        /* ── Results Section ────────────────────────────────– */
+        .result-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .result-section {
+            background: #2a2a2a;
+            border: 2px solid #4caf50;
+            border-radius: 10px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .result-section h2 {
+            margin-top: 0;
+            color: #4caf50;
+            text-align: left;
+        }
+
+        /* ── Density Comparison ────────────────────────────– */
+        .density-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .density-lane {
+            background: #1a1a1a;
+            padding: 16px;
+            border-radius: 8px;
+            border-left: 4px solid #4fc3f7;
+        }
+
+        .density-lane h3 {
+            margin: 0 0 12px;
+            color: #4fc3f7;
+        }
+
+        .density-comparison {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .density-label {
+            color: #888;
+            font-size: 0.9em;
+        }
+
+        .density-value {
+            color: #4caf50;
+            font-weight: bold;
+            font-family: monospace;
+        }
+
+        .change-indicator {
+            font-size: 0.85em;
+            margin-top: 8px;
+        }
+
+        .change-up {
+            color: #ff9800;
+        }
+
+        .change-down {
+            color: #4caf50;
+        }
+
+        .change-stable {
+            color: #888;
+        }
+
+        /* ── Confidence Bar ────────────────────────────────– */
+        .confidence-info {
+            margin-top: 12px;
+            font-size: 0.85em;
+        }
+
+        .confidence-bar {
+            background: #0d0d0d;
+            border-radius: 4px;
+            height: 6px;
+            width: 100%;
+            margin-top: 6px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            background: linear-gradient(to right, #ff9800, #4caf50);
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+
+        .confidence-text {
+            color: #888;
+            font-size: 0.8em;
+            margin-top: 4px;
+        }
+
+        /* ── Summary Box ────────────────────────────────────– */
+        .prediction-summary {
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: left;
+            margin-bottom: 24px;
+        }
+
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #333;
+        }
+
+        .summary-row:last-child {
+            border-bottom: none;
+        }
+
+        .summary-label {
+            color: #888;
+        }
+
+        .summary-value {
+            color: #4caf50;
+            font-weight: bold;
+        }
+
+        /* ── Recommendation Box ────────────────────────────– */
+        .recommendation {
+            background: #1b5e20;
+            color: #c8e6c9;
+            padding: 16px;
+            border-radius: 8px;
+            border-left: 4px solid #4caf50;
+            text-align: left;
+            margin-top: 16px;
+        }
+
+        .recommendation h4 {
+            margin: 0 0 8px;
+            color: #81c784;
+        }
+
+        /* ── History Chart ──────────────────────────────────– */
+        .history-section {
+            background: #1a1a1a;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: left;
+        }
+
+        .history-lane {
+            margin-bottom: 16px;
+        }
+
+        .history-lane:last-child {
+            margin-bottom: 0;
+        }
+
+        .history-title {
+            color: #4fc3f7;
+            font-size: 0.9em;
+            margin-bottom: 6px;
+            font-weight: bold;
+        }
+
+        .history-values {
+            display: flex;
+            gap: 2px;
+            flex-wrap: wrap;
+        }
+
+        .history-bar {
+            flex: 1;
+            height: 20px;
+            background: #333;
+            border-radius: 2px;
+            position: relative;
+            min-width: 10px;
+        }
+
+        .history-bar.recent {
+            background: #4fc3f7;
+        }
+
+        .history-bar.very-recent {
+            background: #81c784;
+        }
+
+        .history-tooltip {
+            font-size: 0.7em;
+            color: #888;
+            text-align: center;
+            line-height: 20px;
+        }
+
+        /* ── Navigation ────────────────────────────────────– */
+        .nav-links {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #333;
+        }
+
+        .nav-links a {
+            color: #4fc3f7;
+            text-decoration: none;
+            margin: 0 15px;
+            font-size: 0.9em;
+        }
+
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>📊 Traffic Density Predictor — Model 3 Test</h1>
+    <p class="subtitle">Input current lane densities, get predictions for the next 30-90 seconds.</p>
+    <p><a href="/">← Back to Live Feed</a> | <a href="/test">🚦 Detection Test</a> | <a href="/test_emergency">🚑
+            Emergency Classifier</a></p>
+
+    <!-- ── Input Form ────────────────────────────────────────── -->
+    <form method="POST">
+        <div class="input-container">
+            <div class="lane-inputs">
+                <div class="lane-input-group">
+                    <label for="density_N">North (vehicles):</label>
+                    <input type="number" id="density_N" name="density_N" min="0" max="50" value="10" required>
+                </div>
+                <div class="lane-input-group">
+                    <label for="density_S">South (vehicles):</label>
+                    <input type="number" id="density_S" name="density_S" min="0" max="50" value="8" required>
+                </div>
+                <div class="lane-input-group">
+                    <label for="density_E">East (vehicles):</label>
+                    <input type="number" id="density_E" name="density_E" min="0" max="50" value="12" required>
+                </div>
+                <div class="lane-input-group">
+                    <label for="density_W">West (vehicles):</label>
+                    <input type="number" id="density_W" name="density_W" min="0" max="50" value="6" required>
+                </div>
+            </div>
+
+            <div class="horizon-control">
+                <label for="horizon">Prediction Horizon:</label>
+                <input type="range" id="horizon" name="horizon" min="10" max="90" step="10" value="30">
+                <div class="horizon-display"><span id="horizonValue">30</span> seconds ahead</div>
+            </div>
+
+            <div class="submit-row">
+                <button type="submit">Predict Traffic Density</button>
+            </div>
+        </div>
+    </form>
+
+    <!-- ── Error Message ──────────────────────────────────────── -->
+    {% if result.error %}
+    <div class="error-message">
+        ⚠️ Error: {{ result.error }}
+    </div>
+    {% endif %}
+
+    <!-- ── Results ────────────────────────────────────────────── -->
+    {% if result and not result.error %}
+    <div class="result-container">
+        <!-- Prediction Summary -->
+        <div class="result-section">
+            <h2>Prediction Summary</h2>
+            <div class="prediction-summary">
+                <div class="summary-row">
+                    <span class="summary-label">Prediction Horizon:</span>
+                    <span class="summary-value">{{ result.prediction_horizon }} seconds</span>
+                </div>
+                <div class="summary-row">
+                    <span class="summary-label">Timestamp:</span>
+                    <span class="summary-value">{{ result.timestamp[:19] }}</span>
+                </div>
+                <div class="summary-row">
+                    <span class="summary-label">Input Densities:</span>
+                    <span class="summary-value">
+                        N:{{ result.current_densities.N | int }} S:{{ result.current_densities.S | int }}
+                        E:{{ result.current_densities.E | int }} W:{{ result.current_densities.W | int }}
+                    </span>
+                </div>
+            </div>
+
+            <div class="recommendation">
+                <h4>💡 Signal Timing Recommendation</h4>
+                <p>Based on predictions: Allocate more green time to
+                    {% set max_lane = result.predicted_densities | dictsort | last %}
+                    <strong>{{ max_lane[0] | upper }} lane</strong> ({{ max_lane[1] | int }} vehicles predicted).
+                </p>
+            </div>
+        </div>
+
+        <!-- Density Predictions by Lane -->
+        <div class="result-section">
+            <h2>Predicted Densities</h2>
+            <div class="density-grid">
+                {% for lane in ['N', 'S', 'E', 'W'] %}
+                {% set lane_name = {'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West'}[lane] %}
+                <div class="density-lane">
+                    <h3>{{ lane_name }} ({{ lane }})</h3>
+
+                    <div class="density-comparison">
+                        <span class="density-label">Current:</span>
+                        <span class="density-value">{{ result.current_densities[lane] | int }} veh</span>
+                    </div>
+
+                    <div class="density-comparison">
+                        <span class="density-label">Predicted:</span>
+                        <span class="density-value">{{ result.predicted_densities[lane] | int }} veh</span>
+                    </div>
+
+                    <div class="change-indicator">
+                        {% set change_info = result.changes[lane] %}
+                        <span class="change-{{ change_info.direction }}">{{ change_info.text }}</span>
+                    </div>
+
+                    <div class="confidence-info">
+                        <div>Confidence: {{ result.confidence_scores[lane] }}%</div>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" style="width: {{ result.confidence_scores[lane] }}%"></div>
+                        </div>
+                        <div class="confidence-text">Lower horizon = Higher confidence</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Historical Trend -->
+        <div class="result-section">
+            <h2>Historical Trend</h2>
+            <div class="history-section">
+                {% for lane in ['N', 'S', 'E', 'W'] %}
+                {% set lane_name = {'N': 'North', 'S': 'South', 'E': 'East', 'W': 'West'}[lane] %}
+                <div class="history-lane">
+                    <div class="history-title">{{ lane_name }} Lane History</div>
+                    <div class="history-values">
+                        {% set history = result.history[lane] %}
+                        {% if not history %}
+                        <span style="color: #888; font-size: 0.9em;">No history yet (submit predictions to build
+                            history)</span>
+                        {% else %}
+                        {% for bar in history %}
+                        <div class="history-bar {% if bar.is_very_recent %}very-recent{% elif bar.is_recent %}recent{% endif %}"
+                            title="{{ bar.value }} vehicles" style="opacity: {{ bar.opacity }};">
+                            <div class="history-tooltip">{{ bar.value }}</div>
+                        </div>
+                        {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ── Navigation ────────────────────────────────────────– -->
+    <div class="nav-links">
+        <a href="/">Live Feed</a>
+        <a href="/test">Detection Test</a>
+        <a href="/test_emergency">Emergency Classifier</a>
+    </div>
+
+    <script>
+        // Update horizon display in real-time
+        document.getElementById('horizon').addEventListener('input', function () {
+            document.getElementById('horizonValue').textContent = this.value;
+        });
+    </script>
+</body>
+
+</html>

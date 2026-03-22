@@ -12,141 +12,141 @@
 
 ```markdown
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          SENSOR INPUT LAYER                                  │
+│                          SENSOR INPUT LAYER                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
+│                                                                             │
 │  [Camera 1]  [Camera 2]  [Camera 3]  [Camera 4]  (4-way intersection)       │
-│       ↓            ↓            ↓            ↓                               │
-│  [IR Sensors] [Ultrasonic] [Sound Sensor] [RTC Module] [LDR Sensor]        │
-│  (4 lanes)    (4 lanes)    (Siren detect) (Timestamp)  (Light level)       │
-│                                                                              │
+│       ↓            ↓            ↓            ↓                              │
+│  [IR Sensors] [Ultrasonic] [Sound Sensor] [RTC Module] [LDR Sensor]         │
+│  (4 lanes)    (4 lanes)    (Siren detect) (Timestamp)  (Light level)        │
+│                                                                             │
 └──────────────────────────────┬──────────────────────────────────────────────┘
                                │
                                ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│              PROCESSING LAYER 1: COMPUTER VISION & DETECTION                 │
+│              PROCESSING LAYER 1: COMPUTER VISION & DETECTION                │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ YOLOv8 Vehicle Detection Model (Main)                               │   │
-│  │ • Input: 4 camera streams (640×480 @ 30fps)                        │   │
-│  │ • Output: Bounding boxes + class labels (car/bike/bus/truck)       │   │
-│  │ • Classes: 0=car, 1=bike, 2=bus, 3=truck, 4=auto                  │   │
-│  │ • Processing: 15-30 FPS per camera (total ~60 FPS with 4 cameras)  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                 │                                            │
-│                                 ↓                                            │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ Emergency Vehicle Classifier (YOLOv8 Fine-tuned)                    │   │
-│  │ • Input: Cropped vehicle images from main YOLO                      │   │
-│  │ • Output: Class confidence (ambulance/fire-truck/police/normal)    │   │
-│  │ • Threshold: >0.8 confidence for emergency classification           │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                 │                                            │
-│                                 ↓                                            │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ Traffic Density Calculator                                          │   │
-│  │ • Input: YOLO detections per lane + Ultrasonic queue length        │   │
-│  │ • Calculation: vehicle_count / lane_area = density (vehicles/m²)   │   │
-│  │ • Output: Density vector [North, South, East, West]               │   │
-│  │ • Validation: IR sensors confirm vehicle presence                  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                 │                                            │
-│                                 ↓                                            │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ Acoustic Siren Detection (Novel Component)                         │   │
-│  │ • Input: Sound Sensor data (KY-037 audio frequency)               │   │
-│  │ • Detection: Frequency band 700-900 Hz (ambulance siren)          │   │
-│  │ • Output: Boolean + confidence score for emergency siren          │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                               │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────-─────┐    │
+│  │ YOLOv8 Vehicle Detection Model (Main)                               │    │
+│  │ • Input: 4 camera streams (640×480 @ 30fps)                         │    │
+│  │ • Output: Bounding boxes + class labels (car/bike/bus/truck)        │    │
+│  │ • Classes: 0=car, 1=bike, 2=bus, 3=truck, 4=auto                    │    │
+│  │ • Processing: 15-30 FPS per camera (total ~60 FPS with 4 cameras)   │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                 │                                           │
+│                                 ↓                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Emergency Vehicle Classifier (YOLOv8 Fine-tuned)                    │    │
+│  │ • Input: Cropped vehicle images from main YOLO                      │    │
+│  │ • Output: Class confidence (ambulance/fire-truck/police/normal)     │    │
+│  │ • Threshold: >0.8 confidence for emergency classification           │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                 │                                           │
+│                                 ↓                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Traffic Density Calculator                                          │    │
+│  │ • Input: YOLO detections per lane + Ultrasonic queue length         │    │
+│  │ • Calculation: vehicle_count / lane_area = density (vehicles/m²)    │    │
+│  │ • Output: Density vector [North, South, East, West]                 │    │
+│  │ • Validation: IR sensors confirm vehicle presence                   │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                 │                                           │
+│                                 ↓                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Acoustic Siren Detection (Novel Component)                          │    │
+│  │ • Input: Sound Sensor data (KY-037 audio frequency)                 │    │
+│  │ • Detection: Frequency band 700-900 Hz (ambulance siren)            │    │
+│  │ • Output: Boolean + confidence score for emergency siren            │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
 └──────────────────────────────┬──────────────────────────────────────────────┘
                                │
                                ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│              PROCESSING LAYER 2: MACHINE LEARNING & PREDICTION               │
+│              PROCESSING LAYER 2: MACHINE LEARNING & PREDICTION              │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ Traffic Density Predictor (Time-Series Model)                      │   │
-│  │ Model Type: LSTM (Long Short-Term Memory) or XGBoost               │   │
-│  │ • Input: Historical density data (past 5 minutes) + current density│   │
-│  │         + time-of-day + day-of-week features                       │   │
-│  │ • Training Data: 30-60 days of traffic patterns                    │   │
-│  │ • Output: Predicted density for next 60 seconds (4 directions)     │   │
-│  │ • Accuracy Target: MAE < 2 vehicles per lane                       │   │
-│  │ • Update Frequency: Every 5 seconds                                │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                 │                                            │
-│                                 ↓                                            │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ Adaptive Signal Timing Optimizer (Reinforcement Learning)          │   │
-│  │ Model Type: Q-Learning / Deep Q-Network (DQN)                      │   │
-│  │ • Input: Current & predicted density, signal state, wait times     │   │
-│  │ • States: Current signal configuration (RRYY, YYGG, etc.)         │   │
-│  │ • Actions: Extend green, switch phase, adjust yellow duration      │   │
-│  │ • Reward: Negative wait time + vehicle throughput                  │   │
-│  │ • Output: Optimal green time per direction (5-60 seconds)          │   │
-│  │ • Constraints: Yellow always 3-5s, cycle time 60-120s              │   │
-│  │ • Update Frequency: Every 2-5 seconds                              │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                 │                                            │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Traffic Density Predictor (Time-Series Model)                       │    │
+│  │ Model Type: LSTM (Long Short-Term Memory) or XGBoost                │    │
+│  │ • Input: Historical density data (past 5 minutes) + current density │    │
+│  │         + time-of-day + day-of-week features                        │    │
+│  │ • Training Data: 30-60 days of traffic patterns                     │    │
+│  │ • Output: Predicted density for next 60 seconds (4 directions)      │    │
+│  │ • Accuracy Target: MAE < 2 vehicles per lane                        │    │
+│  │ • Update Frequency: Every 5 seconds                                 │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                 │                                           │
+│                                 ↓                                           │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Adaptive Signal Timing Optimizer (Reinforcement Learning)           │    │
+│  │ Model Type: Q-Learning / Deep Q-Network (DQN)                       │    │
+│  │ • Input: Current & predicted density, signal state, wait times      │    │
+│  │ • States: Current signal configuration (RRYY, YYGG, etc.)           │    │
+│  │ • Actions: Extend green, switch phase, adjust yellow duration       │    │
+│  │ • Reward: Negative wait time + vehicle throughput                   │    │
+│  │ • Output: Optimal green time per direction (5-60 seconds)           │    │
+│  │ • Constraints: Yellow always 3-5s, cycle time 60-120s               │    │
+│  │ • Update Frequency: Every 2-5 seconds                               │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                 │                                           │
 └──────────────────────────────┬──────────────────────────────────────────────┘
                                │
                                ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│              DECISION LAYER: EMERGENCY VS NORMAL MODE                        │
+│              DECISION LAYER: EMERGENCY VS NORMAL MODE                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                               │
-│  IF (Emergency Vehicle Detected)                                             │
+│                                                                             │
+│  IF (Emergency Vehicle Detected)                                            │
 │     ├─ Visual Detection: YOLO classifier confidence > 0.8                   │
 │     ├─ Audio Detection: Siren frequency detected in sound sensor            │
 │     ├─ Distance Check: Vehicle within 500m (GPS or speed estimation)        │
 │     └─ Confirmation: 2+ signals must be true (multi-modal fusion)           │
-│          │                                                                   │
+│          │                                                                  │
 │          ├→ [EMERGENCY MODE ACTIVATED]                                      │
 │          │   └─ Override normal signal timing                               │
 │          │   └─ Create synchronized green corridor                          │
 │          │   └─ Duration: Until ambulance passes intersection               │
 │          │   └─ Priority Level: 10/10 (highest)                             │
-│          │                                                                   │
-│  ELSE                                                                        │
+│          │                                                                  │
+│  ELSE                                                                       │
 │     └─ [NORMAL MODE]                                                        │
 │        └─ Use optimized signal timing from RL model                         │
 │        └─ Priority Level: Based on traffic density                          │
-│                                                                               │
-│  RESET: Emergency mode deactivates when:                                     │
-│         • Vehicle no longer detected in intersection                         │
+│                                                                             │
+│  RESET: Emergency mode deactivates when:                                    │
+│         • Vehicle no longer detected in intersection                        │
 │         • Siren audio stops for >10 seconds                                 │
 │         • Counter reaches timeout (120 seconds max)                         │
-│                                                                               │
+│                                                                             │
 └──────────────────────────────┬──────────────────────────────────────────────┘
                                │
                                ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│              CONTROL LAYER: SIGNAL GENERATION & COMMANDS                     │
+│              CONTROL LAYER: SIGNAL GENERATION & COMMANDS                    │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                               │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │ Signal State Machine (Python)                                        │  │
-│  │ • States: GREEN (30-60s) → YELLOW (3-5s) → RED (10-60s)             │  │
-│  │ • Manages: 4 directions sequentially                                 │  │
-│  │ • Cycle: Typically 60-120 seconds per full cycle                    │  │
-│  │ • Phase: 2-phase (NS/EW) or 4-phase (all independent)              │  │
-│  │ • Output: 12 control signals for 4 directions × 3 colors            │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-│                                 │                                            │
-│                                 ↓                                            │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │ Serial Protocol to Arduino (PySerial)                                │  │
-│  │ • Command Format: "G1" (green on direction 1)                        │  │
-│  │ •               "Y1" (yellow on direction 1)                         │  │
-│  │ •               "R1" (red on direction 1)                            │  │
-│  │ • Baud Rate: 9600                                                    │  │
-│  │ • Port: /dev/ttyACM0 (Linux/Raspberry Pi)                           │  │
-│  │ • Latency: <100ms per command                                        │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-│                                 │                                            │
+│                                                                             │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │ Signal State Machine (Python)                                        │   │
+│  │ • States: GREEN (30-60s) → YELLOW (3-5s) → RED (10-60s)              │   │
+│  │ • Manages: 4 directions sequentially                                 │   │
+│  │ • Cycle: Typically 60-120 seconds per full cycle                     │   │
+│  │ • Phase: 2-phase (NS/EW) or 4-phase (all independent)                │   │
+│  │ • Output: 12 control signals for 4 directions × 3 colors             │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                 │                                           │
+│                                 ↓                                           │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │ Serial Protocol to Arduino (PySerial)                                │   │
+│  │ • Command Format: "G1" (green on direction 1)                        │   │
+│  │ •               "Y1" (yellow on direction 1)                         │   │
+│  │ •               "R1" (red on direction 1)                            │   │
+│  │ • Baud Rate: 9600                                                    │   │
+│  │ • Port: /dev/ttyACM0 (Linux/Raspberry Pi)                            │   │
+│  │ • Latency: <100ms per command                                        │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                 │                                           │
 └──────────────────────────────┬──────────────────────────────────────────────┘
                                │
                                ↓
@@ -330,7 +330,7 @@ Week 5: Fine-tune & Deploy to Raspberry Pi
     ┌─────────┐          ┌─────────┐          ┌──────────┐
     │ DETECTION│         │ CONTROL │          │ GUI      │
     │ MODULE   │         │ MODULE  │          │ MODULE   │
-    └─────────┘         └─────────┘          └──────────┘
+    └─────────┘          └─────────┘          └──────────┘
          │                     │                     │
          ├─────────────────────┼─────────────────────┤
          │                     │                     │

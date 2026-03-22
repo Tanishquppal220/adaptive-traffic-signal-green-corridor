@@ -1,9 +1,14 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>Four-Way Intersection Test</title>
     <style>
-        *, *::before, *::after { box-sizing: border-box; }
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
 
         body {
             font-family: Arial, sans-serif;
@@ -14,16 +19,30 @@
             padding: 24px;
         }
 
-        h1 { margin-bottom: 6px; }
-        .subtitle { color: #888; font-size: 0.9em; margin-bottom: 24px; }
-        a { color: #4fc3f7; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        h1 {
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 0.9em;
+            margin-bottom: 24px;
+        }
+
+        a {
+            color: #4fc3f7;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
 
         /* ── Intersection cross layout ─────────────────────────── */
         .intersection-grid {
             display: grid;
             grid-template-columns: 1fr 220px 1fr;
-            grid-template-rows:    1fr 220px 1fr;
+            grid-template-rows: 1fr 220px 1fr;
             gap: 12px;
             width: fit-content;
             margin: 0 auto 32px;
@@ -43,11 +62,38 @@
         }
 
         /* positional slots */
-        .cell-N  { grid-column: 2; grid-row: 1; }
-        .cell-W  { grid-column: 1; grid-row: 2; }
-        .cell-centre { grid-column: 2; grid-row: 2; background: #111; border: 2px solid #333; display: flex; align-items: center; justify-content: center; font-size: 2em; color: #555; border-radius: 10px; }
-        .cell-E  { grid-column: 3; grid-row: 2; }
-        .cell-S  { grid-column: 2; grid-row: 3; }
+        .cell-N {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        .cell-W {
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        .cell-centre {
+            grid-column: 2;
+            grid-row: 2;
+            background: #111;
+            border: 2px solid #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2em;
+            color: #555;
+            border-radius: 10px;
+        }
+
+        .cell-E {
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        .cell-S {
+            grid-column: 2;
+            grid-row: 3;
+        }
 
         .lane-cell .lane-label {
             font-size: 1.1em;
@@ -78,7 +124,9 @@
             transition: background 0.2s;
         }
 
-        .submit-row button:hover { background: #388e3c; }
+        .submit-row button:hover {
+            background: #388e3c;
+        }
 
         /* ── Count summary ─────────────────────────────────────── */
         .count-summary {
@@ -107,7 +155,7 @@
         .result-intersection {
             display: grid;
             grid-template-columns: 1fr 300px 1fr;
-            grid-template-rows:    1fr 300px 1fr;
+            grid-template-rows: 1fr 300px 1fr;
             gap: 12px;
             width: fit-content;
             margin: 0 auto 40px;
@@ -125,11 +173,38 @@
             gap: 8px;
         }
 
-        .result-cell-N  { grid-column: 2; grid-row: 1; }
-        .result-cell-W  { grid-column: 1; grid-row: 2; }
-        .result-cell-centre { grid-column: 2; grid-row: 2; background: #111; border: 2px solid #333; display: flex; align-items: center; justify-content: center; font-size: 2em; color: #555; border-radius: 10px; }
-        .result-cell-E  { grid-column: 3; grid-row: 2; }
-        .result-cell-S  { grid-column: 2; grid-row: 3; }
+        .result-cell-N {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        .result-cell-W {
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        .result-cell-centre {
+            grid-column: 2;
+            grid-row: 2;
+            background: #111;
+            border: 2px solid #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2em;
+            color: #555;
+            border-radius: 10px;
+        }
+
+        .result-cell-E {
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        .result-cell-S {
+            grid-column: 2;
+            grid-row: 3;
+        }
 
         .result-cell .dir-label {
             font-weight: bold;
@@ -154,10 +229,12 @@
         }
     </style>
 </head>
+
 <body>
     <h1>🚦 Four-Way Intersection — Detection Test</h1>
     <p class="subtitle">Upload one image per lane, then run detection to see per-lane counts.</p>
-    <p><a href="/">← Back to Live Feed</a></p>
+    <p><a href="/">← Back to Live Feed</a> | <a href="/test_emergency">🚑 Emergency Classifier</a> | <a
+            href="/test_traffic_prediction">📊 Traffic Predictor →</a></p>
 
     <!-- ── Upload form in cross layout ─────────────────────────── -->
     <form method="POST" enctype="multipart/form-data">
@@ -196,26 +273,27 @@
     <h2 style="margin-bottom: 16px;">Annotated Frames</h2>
     <div class="result-intersection">
         {% for key, label in lanes.items() %}
-            {% if key == 'laneN' %}
-                <div class="result-cell result-cell-N">
+        {% if key == 'laneN' %}
+        <div class="result-cell result-cell-N">
             {% elif key == 'laneS' %}
-                <div class="result-cell result-cell-S">
-            {% elif key == 'laneW' %}
+            <div class="result-cell result-cell-S">
+                {% elif key == 'laneW' %}
                 <div class="result-cell result-cell-W">
-            {% else %}
-                <div class="result-cell result-cell-E">
-            {% endif %}
-                <span class="dir-label">{{ label }}</span>
-                {% if key in lane_images and lane_images[key] %}
-                    <span class="count-badge">{{ lane_counts[key] }} vehicles</span>
-                    <img src="data:image/jpeg;base64,{{ lane_images[key] }}" alt="{{ label }} detection">
-                {% else %}
-                    <span style="color:#666;">No image</span>
+                    {% else %}
+                    <div class="result-cell result-cell-E">
+                        {% endif %}
+                        <span class="dir-label">{{ label }}</span>
+                        {% if key in lane_images and lane_images[key] %}
+                        <span class="count-badge">{{ lane_counts[key] }} vehicles</span>
+                        <img src="data:image/jpeg;base64,{{ lane_images[key] }}" alt="{{ label }} detection">
+                        {% else %}
+                        <span style="color:#666;">No image</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    <div class="result-cell-centre">✛</div>
+                </div>
                 {% endif %}
-            </div>
-        {% endfor %}
-        <div class="result-cell-centre">✛</div>
-    </div>
-    {% endif %}
 </body>
+
 </html>

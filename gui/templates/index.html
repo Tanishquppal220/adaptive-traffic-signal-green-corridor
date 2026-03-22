@@ -1,9 +1,15 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>Live Traffic Feed</title>
     <style>
-        *, *::before, *::after { box-sizing: border-box; }
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+
         body {
             font-family: Arial, sans-serif;
             text-align: center;
@@ -12,9 +18,19 @@
             margin: 0;
             padding: 24px;
         }
-        h1 { margin-bottom: 6px; }
-        a { color: #4fc3f7; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+
+        h1 {
+            margin-bottom: 6px;
+        }
+
+        a {
+            color: #4fc3f7;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
 
         #result-canvas {
             border: 5px solid #444;
@@ -54,8 +70,15 @@
             cursor: pointer;
             transition: background 0.2s;
         }
-        #start-btn:hover { background: #388e3c; }
-        #start-btn:disabled { background: #555; cursor: default; }
+
+        #start-btn:hover {
+            background: #388e3c;
+        }
+
+        #start-btn:disabled {
+            background: #555;
+            cursor: default;
+        }
 
         #stop-btn {
             margin-top: 16px;
@@ -70,7 +93,10 @@
             display: none;
             transition: background 0.2s;
         }
-        #stop-btn:hover { background: #b71c1c; }
+
+        #stop-btn:hover {
+            background: #b71c1c;
+        }
 
         #error-msg {
             color: #ef5350;
@@ -80,13 +106,15 @@
         }
     </style>
 </head>
+
 <body>
     <h1>🚦 Adaptive Traffic System — Live Feed</h1>
-    <p><a href="/test">Test with uploaded images →</a></p>
+    <p><a href="/test">Test with uploaded images →</a> | <a href="/test_emergency">🚑 Emergency Classifier</a> | <a
+            href="/test_traffic_prediction">📊 Traffic Predictor →</a></p>
 
     <div>
         <button id="start-btn" onclick="startCamera()">📷 Allow Camera &amp; Start Feed</button>
-        <button id="stop-btn"  onclick="stopCamera()">⏹ Stop Feed</button>
+        <button id="stop-btn" onclick="stopCamera()">⏹ Stop Feed</button>
         <p id="error-msg"></p>
     </div>
 
@@ -101,21 +129,21 @@
     <div class="count-pill" id="count-pill"></div>
 
     <script>
-        const webcam        = document.getElementById('webcam');
+        const webcam = document.getElementById('webcam');
         const captureCanvas = document.getElementById('capture-canvas');
-        const resultCanvas  = document.getElementById('result-canvas');
-        const statusEl      = document.getElementById('status');
-        const countPill     = document.getElementById('count-pill');
-        const errorMsg      = document.getElementById('error-msg');
-        const startBtn      = document.getElementById('start-btn');
-        const stopBtn       = document.getElementById('stop-btn');
+        const resultCanvas = document.getElementById('result-canvas');
+        const statusEl = document.getElementById('status');
+        const countPill = document.getElementById('count-pill');
+        const errorMsg = document.getElementById('error-msg');
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
 
         const captureCtx = captureCanvas.getContext('2d');
-        const resultCtx  = resultCanvas.getContext('2d');
+        const resultCtx = resultCanvas.getContext('2d');
 
-        let running   = false;
+        let running = false;
         let rafHandle = null;
-        let lastSend  = 0;
+        let lastSend = 0;
         const INTERVAL_MS = 1000; // one YOLO inference per second
 
         async function startCamera() {
@@ -130,11 +158,11 @@
                 await webcam.play();
                 running = true;
                 startBtn.style.display = 'none';
-                stopBtn.style.display  = 'inline-block';
-                statusEl.textContent   = 'Camera active — detecting vehicles…';
+                stopBtn.style.display = 'inline-block';
+                statusEl.textContent = 'Camera active — detecting vehicles…';
                 rafHandle = requestAnimationFrame(captureLoop);
             } catch (err) {
-                startBtn.disabled    = false;
+                startBtn.disabled = false;
                 errorMsg.textContent = `Camera error: ${err.message}`;
                 statusEl.textContent = 'Permission denied or no camera available.';
             }
@@ -147,11 +175,11 @@
                 webcam.srcObject.getTracks().forEach(t => t.stop());
                 webcam.srcObject = null;
             }
-            stopBtn.style.display  = 'none';
+            stopBtn.style.display = 'none';
             startBtn.style.display = 'inline-block';
-            startBtn.disabled      = false;
+            startBtn.disabled = false;
             countPill.style.display = 'none';
-            statusEl.textContent   = 'Feed stopped.';
+            statusEl.textContent = 'Feed stopped.';
             // clear canvas
             resultCtx.fillStyle = '#000';
             resultCtx.fillRect(0, 0, 640, 480);
@@ -188,9 +216,9 @@
                     img.onload = () => resultCtx.drawImage(img, 0, 0, 640, 480);
                     img.src = 'data:image/jpeg;base64,' + data.annotated;
 
-                    countPill.textContent    = `Vehicles detected: ${data.vehicle_count}`;
-                    countPill.style.display  = 'inline-block';
-                    statusEl.textContent     = 'Live ✓';
+                    countPill.textContent = `Vehicles detected: ${data.vehicle_count}`;
+                    countPill.style.display = 'inline-block';
+                    statusEl.textContent = 'Live ✓';
                 } catch (e) {
                     statusEl.textContent = 'Inference request failed.';
                 } finally {
@@ -200,4 +228,5 @@
         }
     </script>
 </body>
+
 </html>

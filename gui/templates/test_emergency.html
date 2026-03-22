@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Emergency Vehicle Classifier Test</title>
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background: #1a1a1a;
+            color: #eee;
+            margin: 0;
+            padding: 24px;
+        }
+
+        h1 {
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 0.9em;
+            margin-bottom: 24px;
+        }
+
+        a {
+            color: #4fc3f7;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        /* ── Upload section ──────────────────────────────────── */
+        .upload-container {
+            background: #2a2a2a;
+            border: 2px dashed #555;
+            border-radius: 10px;
+            padding: 32px;
+            max-width: 520px;
+            margin: 0 auto 32px;
+        }
+
+        .upload-container input[type="file"] {
+            font-size: 1em;
+            color: #ccc;
+            margin-bottom: 16px;
+            display: block;
+        }
+
+        .submit-row {
+            margin: 16px 0 0;
+        }
+
+        .submit-row button {
+            padding: 12px 40px;
+            font-size: 1em;
+            background: #4caf50;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .submit-row button:hover {
+            background: #388e3c;
+        }
+
+        /* ── Error message ───────────────────────────────────── */
+        .error-message {
+            background: #b71c1c;
+            color: #fff;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin: 0 auto 24px;
+            max-width: 520px;
+        }
+
+        /* ── Result section ──────────────────────────────────── */
+        .result-container {
+            max-width: 620px;
+            margin: 0 auto;
+        }
+
+        .result-box {
+            background: #2a2a2a;
+            border: 2px solid #4caf50;
+            border-radius: 10px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .result-box h2 {
+            margin-top: 0;
+            color: #4caf50;
+        }
+
+        .classification-result {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .result-image {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 6px;
+            border: 2px solid #555;
+        }
+
+        .class-info {
+            text-align: left;
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 16px;
+            width: 100%;
+        }
+
+        .class-info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #333;
+        }
+
+        .class-info-row:last-child {
+            border-bottom: none;
+        }
+
+        .class-info-label {
+            color: #888;
+            font-weight: bold;
+        }
+
+        .class-info-value {
+            color: #4caf50;
+            font-weight: bold;
+        }
+
+        .confidence-bar {
+            background: #333;
+            border-radius: 4px;
+            height: 6px;
+            width: 100%;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            background: linear-gradient(to right, #ff9800, #4caf50);
+            height: 100%;
+        }
+
+        .all-classes {
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            text-align: left;
+            margin-top: 16px;
+        }
+
+        .all-classes h4 {
+            margin: 0 0 12px;
+            color: #4fc3f7;
+        }
+
+        .class-probability {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+            background: #1a1a1a;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+
+        .class-probability:last-child {
+            margin-bottom: 0;
+        }
+
+        .class-prob-name {
+            color: #ccc;
+        }
+
+        .class-prob-score {
+            color: #4caf50;
+            font-weight: bold;
+            font-family: monospace;
+        }
+
+        .emergency-alert {
+            background: #b71c1c;
+            color: #fff;
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 12px;
+            font-weight: bold;
+        }
+
+        .normal-vehicle {
+            background: #1b5e20;
+            color: #c8e6c9;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🚑 Emergency Vehicle Classifier — Model 3 Test</h1>
+    <p class="subtitle">Upload a vehicle image to classify as normal, ambulance, fire-truck, or police.</p>
+    <p><a href="/">← Back to Live Feed</a> | <a href="/test">🚦 Detection Test</a> | <a
+            href="/test_traffic_prediction">📊 Traffic Predictor</a></p>
+
+    <!-- ── Upload form ────────────────────────────────────────── -->
+    <form method="POST" enctype="multipart/form-data">
+        <div class="upload-container">
+            <label for="vehicle_image"><strong>Select Vehicle Image:</strong></label>
+            <input type="file" id="vehicle_image" name="vehicle_image" accept="image/*" required>
+            <div class="submit-row">
+                <button type="submit">Classify Vehicle</button>
+            </div>
+        </div>
+    </form>
+
+    <!-- ── Error message ──────────────────────────────────────── -->
+    {% if result.error %}
+    <div class="error-message">
+        ⚠️ Error: {{ result.error }}
+    </div>
+    {% endif %}
+
+    <!-- ── Results ────────────────────────────────────────────── -->
+    {% if result and not result.error %}
+    <div class="result-container">
+        <div class="result-box">
+            <h2>Classification Result</h2>
+            <div class="classification-result">
+                {% if result.annotated %}
+                <img src="data:image/jpeg;base64,{{ result.annotated }}" class="result-image"
+                    alt="Vehicle with classification">
+                {% endif %}
+
+                <div class="class-info">
+                    <div class="class-info-row">
+                        <span class="class-info-label">Predicted Class:</span>
+                        <span class="class-info-value">{{ result.class_name | title }}</span>
+                    </div>
+                    <div class="class-info-row">
+                        <span class="class-info-label">Confidence Score:</span>
+                        <span class="class-info-value">{{ "%.2f" | format(result.confidence * 100) }}%</span>
+                    </div>
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" style="width: {{ (result.confidence * 100) | int }}%"></div>
+                    </div>
+
+                    {% if result.class_name != 'normal' %}
+                    <div class="emergency-alert">
+                        🚨 EMERGENCY VEHICLE DETECTED
+                    </div>
+                    {% else %}
+                    <div class="emergency-alert normal-vehicle">
+                        ✓ Normal Vehicle
+                    </div>
+                    {% endif %}
+                </div>
+
+                {% if result.all_classes %}
+                <div class="all-classes">
+                    <h4>All Class Probabilities</h4>
+                    {% for class_name, confidence in result.all_classes.items() %}
+                    <div class="class-probability">
+                        <span class="class-prob-name">{{ class_name | title }}</span>
+                        <span class="class-prob-score">{{ "%.2f" | format(confidence * 100) }}%</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</body>
+
+</html>
