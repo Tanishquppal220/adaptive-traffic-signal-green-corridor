@@ -13,7 +13,7 @@ MODELS_DIR = PROJECT_ROOT / "models"
 TRAFFIC_DETECTION_MODEL_PATH = MODELS_DIR / "traffic_detection_yolov8s.pt"
 
 # ── Detection settings ───────────────────────────────────────────────────────
-CONFIDENCE_THRESHOLD: float = 0.7
+CONFIDENCE_THRESHOLD: float = 0.5
 INFERENCE_INTERVAL: float = 3.0  # seconds between YOLO inferences on live feed
 
 # ── Camera ───────────────────────────────────────────────────────────────────
