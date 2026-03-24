@@ -1,8 +1,8 @@
 """Traffic density prediction using trained ML models per lane.
 
 This module provides traffic density forecasting using joblib-trained ML models
-for each direction (N/S/E/W). Falls back to heuristic prediction if model loading
-fails.
+for each direction (N/S/E/W). Requires all models to be present - raises
+exceptions if model loading fails.
 
 Input: Historical lane densities + horizon (seconds).
 Output: Predicted densities for the specified horizon.
@@ -17,10 +17,7 @@ from typing import Any
 
 import numpy as np
 
-try:
-    import joblib
-except ImportError:
-    joblib = None  # type: ignore
+import joblib  # Required dependency for loading trained models
 
 
 @dataclass(frozen=True)
@@ -44,13 +41,13 @@ class TrafficDensityPredictor:
     """Predicts traffic density using trained ML models per direction.
 
     Loads joblib-trained models for each lane (N/S/E/W) from config.
-    Falls back to heuristic-based prediction if model loading fails.
+    Raises exceptions if models cannot be loaded.
 
-    Strategy:
-    - Primary: Use trained ML models (joblib) for each direction
-    - Fallback: Linear trend extrapolation if models unavailable
+    Features:
+    - Uses trained ML models (scikit-learn) for each direction
     - Input: Current densities + historical pattern + horizon
     - Features: 5-value history + normalized prediction horizon
+    - Clamps predictions to reasonable bounds (0-50 vehicles)
     """
 
     def __init__(self, model_paths: dict[str, Path] | None = None) -> None:
@@ -68,45 +65,41 @@ class TrafficDensityPredictor:
         }
         self._max_history: int = 20  # Keep last 20 measurements
         self._models: dict[str, Any] = {}
-        self._use_ml_models: bool = False
 
         # Load model paths from config if not provided
         if model_paths is None:
-            try:
-                from config import DENSITY_PREDICTOR_MODELS
-                model_paths = DENSITY_PREDICTOR_MODELS
-            except ImportError:
-                model_paths = {}
+            from config import DENSITY_PREDICTOR_MODELS
 
-        # Load trained models for each lane
-        if joblib is not None and model_paths:
-            for lane in ["N", "S", "E", "W"]:
-                try:
-                    model_path = model_paths.get(lane)
-                    if model_path and Path(model_path).exists():
-                        self._models[lane] = joblib.load(model_path)
-                    else:
-                        print(
-                            f"Warning: Model for lane {lane} not found "
-                            f"at {model_path}"
-                        )
-                except Exception as e:
-                    print(
-                        f"Warning: Failed to load model for lane {lane}: {e}")
+            model_paths = DENSITY_PREDICTOR_MODELS
 
-            # Enable ML models only if all 4 lanes loaded successfully
-            if len(self._models) == 4:
-                self._use_ml_models = True
-                print("Using trained ML models for density prediction")
-            else:
-                print(
-                    f"Falling back to heuristic prediction "
-                    f"({len(self._models)}/4 models loaded)"
+        if not model_paths:
+            raise ValueError("No model paths provided. Cannot initialize TrafficDensityPredictor.")
+
+        # Load trained models for each lane (strict validation)
+        print("Loading density predictor models...")
+        for lane in ["N", "S", "E", "W"]:
+            model_path = model_paths.get(lane)
+
+            if not model_path:
+                raise ValueError(f"Model path for lane {lane} is missing from config")
+
+            if not Path(model_path).exists():
+                raise FileNotFoundError(
+                    f"Model file for lane {lane} not found at {model_path}. "
+                    f"Ensure all trained models are present in the models/ directory."
                 )
 
-    def update_history(
-        self, current_densities: dict[str, float]
-    ) -> None:
+            try:
+                self._models[lane] = joblib.load(model_path)
+                print(f"  ✓ Loaded model for lane {lane}")
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load model for lane {lane} from {model_path}: {e}"
+                ) from e
+
+        print(f"✓ Successfully loaded all {len(self._models)} ML models for density prediction")
+
+    def update_history(self, current_densities: dict[str, float]) -> None:
         """Update the historical record with current densities.
 
         Args:
@@ -154,7 +147,7 @@ class TrafficDensityPredictor:
         current_densities: dict[str, float],
         prediction_seconds: int = 30,
     ) -> DensityPrediction:
-        """Predict traffic density ahead using ML models or heuristics.
+        """Predict traffic density ahead using trained ML models.
 
         Args:
             current_densities: Current vehicle counts {N/S/E/W -> count}.
@@ -162,6 +155,11 @@ class TrafficDensityPredictor:
 
         Returns:
             DensityPrediction with predicted densities and confidence scores.
+
+        Raises:
+            KeyError: If a lane model is missing.
+            ValueError: If feature preparation fails.
+            RuntimeError: If model prediction fails.
         """
         predicted = {}
         confidence = {}
@@ -171,37 +169,18 @@ class TrafficDensityPredictor:
             current = current_densities.get(lane, 0)
             hist = self._history.get(lane, [])
 
-            # Try ML model prediction first
-            if (
-                self._use_ml_models
-                and lane in self._models
-                and len(hist) > 0
-            ):
-                try:
-                    features = self._prepare_features(
-                        hist, current, prediction_seconds
-                    )
-                    pred_value = float(
-                        self._models[lane].predict(features)[0]
-                    )
-                    # Clamp to reasonable bounds
-                    pred_value = max(0, min(50, pred_value))
-                    # Higher confidence for ML predictions
-                    conf = max(
-                        0.6,
-                        1.0 - (prediction_seconds / 150.0),
-                    )
-                except Exception as e:
-                    print(f"ML prediction failed for {lane}: {e}")
-                    # Fall back to heuristic
-                    pred_value, conf = self._heuristic_predict(
-                        hist, current, prediction_seconds
-                    )
-            else:
-                # Use heuristic prediction
-                pred_value, conf = self._heuristic_predict(
-                    hist, current, prediction_seconds
-                )
+            # Prepare features and predict using ML model
+            features = self._prepare_features(hist, current, prediction_seconds)
+            pred_value = float(self._models[lane].predict(features)[0])
+
+            # Clamp to reasonable bounds
+            pred_value = max(0, min(50, pred_value))
+
+            # Confidence decreases with prediction horizon
+            conf = max(
+                0.6,
+                1.0 - (prediction_seconds / 150.0),
+            )
 
             predicted[lane] = round(pred_value, 1)
             confidence[lane] = conf
@@ -212,39 +191,6 @@ class TrafficDensityPredictor:
             prediction_horizon=prediction_seconds,
             timestamp=now,
         )
-
-    def _heuristic_predict(
-        self,
-        history: list[float],
-        current: float,
-        prediction_seconds: int,
-    ) -> tuple[float, float]:
-        """Fallback heuristic prediction via linear trend extrapolation.
-
-        Args:
-            history: Historical density values.
-            current: Current density value.
-            prediction_seconds: Prediction horizon.
-
-        Returns:
-            Tuple of (predicted_value, confidence_score).
-        """
-        if len(history) >= 2:
-            # Simple linear trend from last 5 measurements
-            recent = history[-5:] if len(history) >= 5 else history
-            trend = (recent[-1] - recent[0]) / (len(recent) - 1)
-            pred_value = current + trend * (prediction_seconds / 5.0)
-        else:
-            # Not enough history: use current value
-            pred_value = current
-
-        # Clamp to reasonable bounds (0-50 vehicles per lane)
-        pred_value = max(0, min(50, pred_value))
-
-        # Confidence decreases with prediction horizon
-        conf = max(0.5, 1.0 - (prediction_seconds / 120.0))
-
-        return pred_value, conf
 
     def get_history(self, lane: str) -> list[float]:
         """Return historical density values for a lane.
