@@ -18,9 +18,9 @@ from typing import Any
 import numpy as np
 
 try:
-    import joblib
+    import xgboost as xgb  # type: ignore
 except ImportError:
-    joblib = None  # type: ignore
+    xgb = None  # type: ignore
 
 
 @dataclass(frozen=True)
@@ -41,13 +41,13 @@ class DensityPrediction:
 
 
 class TrafficDensityPredictor:
-    """Predicts traffic density using trained ML models per direction.
+    """Predicts traffic density using trained XGBoost models per direction.
 
-    Loads joblib-trained models for each lane (N/S/E/W) from config.
+    Loads native XGBoost .ubj models for each lane (N/S/E/W) from config.
     Falls back to heuristic-based prediction if model loading fails.
 
     Strategy:
-    - Primary: Use trained ML models (joblib) for each direction
+    - Primary: Use trained XGBoost Booster models (xgb.Booster) for each direction
     - Fallback: Linear trend extrapolation if models unavailable
     - Input: Current densities + historical pattern + horizon
     - Features: 5-value history + normalized prediction horizon
@@ -78,13 +78,15 @@ class TrafficDensityPredictor:
             except ImportError:
                 model_paths = {}
 
-        # Load trained models for each lane
-        if joblib is not None and model_paths:
+        # Load trained XGBoost models for each lane (.ubj native format)
+        if xgb is not None and model_paths:
             for lane in ["N", "S", "E", "W"]:
                 try:
                     model_path = model_paths.get(lane)
                     if model_path and Path(model_path).exists():
-                        self._models[lane] = joblib.load(model_path)
+                        booster = xgb.Booster()
+                        booster.load_model(str(model_path))  # native .ubj loader
+                        self._models[lane] = booster
                     else:
                         print(
                             f"Warning: Model for lane {lane} not found "
@@ -97,7 +99,7 @@ class TrafficDensityPredictor:
             # Enable ML models only if all 4 lanes loaded successfully
             if len(self._models) == 4:
                 self._use_ml_models = True
-                print("Using trained ML models for density prediction")
+                print("Using trained XGBoost models for density prediction")
             else:
                 print(
                     f"Falling back to heuristic prediction "
@@ -181,8 +183,10 @@ class TrafficDensityPredictor:
                     features = self._prepare_features(
                         hist, current, prediction_seconds
                     )
+                    # XGBoost Booster.predict() needs a DMatrix input
+                    dmatrix = xgb.DMatrix(features)
                     pred_value = float(
-                        self._models[lane].predict(features)[0]
+                        self._models[lane].predict(dmatrix)[0]
                     )
                     # Clamp to reasonable bounds
                     pred_value = max(0, min(50, pred_value))

@@ -8,6 +8,7 @@ renders templates — nothing more.
 from __future__ import annotations
 
 import base64
+import time
 from typing import Any
 
 import cv2
@@ -18,6 +19,7 @@ from config import FLASK_DEBUG, FLASK_HOST, FLASK_PORT
 from detection import VehicleDetector
 from detection.camera import CameraStream, generate_annotated_stream
 from detection.traffic_predictor import TrafficDensityPredictor
+from control.rl_agent import RLAgent
 
 
 def create_app() -> Flask:
@@ -30,6 +32,23 @@ def create_app() -> Flask:
 
     # Traffic density predictor for adaptive signal timing
     predictor = TrafficDensityPredictor()
+
+    # RL signal controller — loads signal_policy.zip once at startup
+    agent = RLAgent()
+
+    # ── Signal state tracker (shared across requests) ──────────────────
+    # Tracks the current phase, how long we've been in it, and the last
+    # vehicle counts so /signal_decision can work without camera input.
+    _signal_state: dict[str, Any] = {
+        "phase": 0,               # 0 = NS green, 1 = EW green
+        "phase_start_time": time.time(),
+        "last_counts": {"N": 0, "S": 0, "E": 0, "W": 0},
+        "last_predictions": {"N": 0.0, "S": 0.0, "E": 0.0, "W": 0.0},
+        "ambulance_detected": False,
+        "ambulance_direction": -1,
+        "current_green_duration": 30,   # seconds chosen by RL
+        "green_expires_at": time.time() + 30,
+    }
 
     # ── Routes ───────────────────────────────────────────────────────────
 
@@ -82,6 +101,7 @@ def create_app() -> Flask:
     def test():
         lane_counts: dict[str, int] = {}
         lane_images: dict[str, str] = {}
+        signal_result: dict[str, Any] = {}
 
         if request.method == "POST":
             for lane_key in LANES:
@@ -91,7 +111,7 @@ def create_app() -> Flask:
                     file_bytes = np.frombuffer(file.read(), np.uint8)
                     img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-                    # Run detection
+                    # Run YOLO detection
                     result = detector.detect(img)  # type: ignore[arg-type]
                     annotated = detector.draw_vehicle_count(
                         result.annotated_frame, result.vehicle_count
@@ -103,11 +123,62 @@ def create_app() -> Flask:
                     lane_images[lane_key] = base64.b64encode(
                         buf.tobytes()).decode("utf-8")
 
+            if lane_counts:
+                # Convert laneN/S/E/W keys → N/S/E/W for the models
+                dir_counts = {
+                    "N": lane_counts.get("laneN", 0),
+                    "S": lane_counts.get("laneS", 0),
+                    "E": lane_counts.get("laneE", 0),
+                    "W": lane_counts.get("laneW", 0),
+                }
+
+                # XGBoost: predict density 60 s ahead
+                predictor.update_history(dir_counts)
+                pred = predictor.predict(dir_counts, prediction_seconds=60)
+                predicted_densities = pred.predicted_densities
+
+                # Try both phases and pick the one the RL agent prefers
+                # (phase 0 = NS green, phase 1 = EW green)
+                results_by_phase: dict[int, int] = {}
+                for phase in (0, 1):
+                    detections = {
+                        "vehicle_counts":      dir_counts,
+                        "predicted_densities": predicted_densities,
+                        "current_phase":       phase,
+                        "time_in_phase":       0.0,
+                        "ambulance_detected":  False,
+                        "ambulance_direction": -1,
+                    }
+                    results_by_phase[phase] = agent.get_action(detections)
+
+                # Heuristic: pick the phase that serves the heavier pair
+                ns_load = dir_counts["N"] + dir_counts["S"]
+                ew_load = dir_counts["E"] + dir_counts["W"]
+                recommended_phase = 0 if ns_load >= ew_load else 1
+                green_duration = results_by_phase[recommended_phase]
+
+                # Build per-direction signal colour map
+                if recommended_phase == 0:
+                    signal_states = {"N": "GREEN", "S": "GREEN", "E": "RED", "W": "RED"}
+                else:
+                    signal_states = {"N": "RED", "S": "RED", "E": "GREEN", "W": "GREEN"}
+
+                signal_result = {
+                    "phase":               recommended_phase,
+                    "phase_label":         "NS GREEN" if recommended_phase == 0 else "EW GREEN",
+                    "green_duration":      green_duration,
+                    "signal_states":       signal_states,
+                    "vehicle_counts":      dir_counts,
+                    "predicted_densities": predicted_densities,
+                    "rl_model_loaded":     agent.is_loaded,
+                }
+
         return render_template(
             "test.html",
             lane_counts=lane_counts,
             lane_images=lane_images,
             lanes=LANES,
+            signal_result=signal_result,
         )
 
     @app.route("/test_emergency", methods=["GET", "POST"])
@@ -245,6 +316,110 @@ def create_app() -> Flask:
         return render_template(
             "test_traffic_prediction.html", result=prediction_result
         )
+
+    # ── RL Signal Decision endpoint ───────────────────────────────────────
+
+    @app.route("/signal_decision", methods=["GET", "POST"])
+    def signal_decision():
+        """Return the RL agent's recommended signal state.
+
+        GET  — returns current cached signal state (no inference).
+        POST — accepts new detection data, runs RL inference, updates state.
+
+        POST body (JSON), all fields optional:
+        {
+            "vehicle_counts":      {"N": 7, "S": 3, "E": 12, "W": 1},
+            "ambulance_detected": true,
+            "ambulance_direction": 2
+        }
+
+        Response JSON:
+        {
+            "phase":              0,           // 0=NS green, 1=EW green
+            "green_duration":     30,          // seconds RL chose
+            "time_in_phase":      12.4,        // seconds elapsed
+            "time_remaining":     17.6,        // seconds left
+            "signal_states":  {"N":"GREEN", "S":"GREEN", "E":"RED", "W":"RED"},
+            "ambulance_detected": false,
+            "ambulance_direction": -1,
+            "rl_model_loaded":    true,
+            "predicted_densities": {"N":8.0, "S":3.5, "E":13.0, "W":1.2}
+        }
+        """
+        now = time.time()
+
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+
+            # Update counts if provided
+            if "vehicle_counts" in data:
+                counts = data["vehicle_counts"]
+                _signal_state["last_counts"] = {
+                    k: int(counts.get(k, 0)) for k in ["N", "S", "E", "W"]
+                }
+                # Update predictor history
+                predictor.update_history(_signal_state["last_counts"])
+
+            # Update ambulance state if provided
+            if "ambulance_detected" in data:
+                _signal_state["ambulance_detected"] = bool(data["ambulance_detected"])
+                _signal_state["ambulance_direction"] = int(
+                    data.get("ambulance_direction", -1)
+                )
+
+            # Update XGBoost predictions
+            pred = predictor.predict(_signal_state["last_counts"], prediction_seconds=60)
+            _signal_state["last_predictions"] = pred.predicted_densities
+
+            # Check if current green phase has expired → let RL decide next duration
+            if now >= _signal_state["green_expires_at"]:
+                # Flip phase
+                _signal_state["phase"] = 1 - _signal_state["phase"]
+                _signal_state["phase_start_time"] = now
+
+                # Ask RL agent for new green duration
+                detections = {
+                    "vehicle_counts":      _signal_state["last_counts"],
+                    "predicted_densities": _signal_state["last_predictions"],
+                    "current_phase":       _signal_state["phase"],
+                    "time_in_phase":       0.0,
+                    "ambulance_detected":  _signal_state["ambulance_detected"],
+                    "ambulance_direction": _signal_state["ambulance_direction"],
+                }
+                green_dur = agent.get_action(detections)
+                _signal_state["current_green_duration"] = green_dur
+                _signal_state["green_expires_at"] = now + green_dur
+
+        # ── Build response ────────────────────────────────────────────────
+        phase = _signal_state["phase"]
+        phase_start = _signal_state["phase_start_time"]
+        green_dur = _signal_state["current_green_duration"]
+        time_in_phase = now - phase_start
+        time_remaining = max(0.0, _signal_state["green_expires_at"] - now)
+
+        # Map phase → signal colours for all 4 directions
+        if phase == 0:  # NS green
+            signal_states = {"N": "GREEN", "S": "GREEN", "E": "RED", "W": "RED"}
+        else:           # EW green
+            signal_states = {"N": "RED", "S": "RED", "E": "GREEN", "W": "GREEN"}
+
+        # Yellow transition: last 3 seconds of a phase
+        if time_remaining <= 3.0:
+            for lane in (["N", "S"] if phase == 0 else ["E", "W"]):
+                signal_states[lane] = "YELLOW"
+
+        return jsonify({
+            "phase":               phase,
+            "green_duration":      green_dur,
+            "time_in_phase":       round(time_in_phase, 1),
+            "time_remaining":      round(time_remaining, 1),
+            "signal_states":       signal_states,
+            "ambulance_detected":  _signal_state["ambulance_detected"],
+            "ambulance_direction": _signal_state["ambulance_direction"],
+            "rl_model_loaded":     agent.is_loaded,
+            "predicted_densities": _signal_state["last_predictions"],
+            "vehicle_counts":      _signal_state["last_counts"],
+        })
 
     return app
 
