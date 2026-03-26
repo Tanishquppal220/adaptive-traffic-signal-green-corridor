@@ -44,11 +44,8 @@ from __future__ import annotations
 
 import numpy as np
 
-# Must match TrafficEnv.MAX_QUEUE
-MAX_QUEUE: int = 20
-
-# Direction strings → lane index for normalization
-_DIR_STR_TO_IDX: dict[str, int] = {"N": 0, "S": 1, "E": 2, "W": 3}
+# Must match TrafficEnv.MAX_QUEUE; import to avoid duplication
+from simulation.traffic_env import MAX_QUEUE
 
 
 class StateEncoder:

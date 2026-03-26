@@ -8,6 +8,7 @@ renders templates — nothing more.
 from __future__ import annotations
 
 import base64
+import threading
 import time
 from typing import Any
 
@@ -49,6 +50,7 @@ def create_app() -> Flask:
         "current_green_duration": 30,   # seconds chosen by RL
         "green_expires_at": time.time() + 30,
     }
+    _signal_lock = threading.Lock()  # protects _signal_state from concurrent writes
 
     # ── Routes ───────────────────────────────────────────────────────────
 
@@ -134,7 +136,9 @@ def create_app() -> Flask:
                 pred = predictor.predict(dir_counts, prediction_seconds=60)
                 predicted_densities = pred.predicted_densities
 
-                # Try both phases and pick the one the RL agent prefers
+                # Query RL agent for green duration for each candidate phase.
+                # Phase selection is done by a queue-load heuristic (not the model),
+                # since the DQN action represents green duration, not phase selection.
                 # (phase 0 = NS green, phase 1 = EW green)
                 results_by_phase: dict[int, int] = {}
                 for phase in (0, 1):
@@ -349,51 +353,53 @@ def create_app() -> Flask:
         if request.method == "POST":
             data = request.get_json(silent=True) or {}
 
-            # Update counts if provided
-            if "vehicle_counts" in data:
-                counts = data["vehicle_counts"]
-                _signal_state["last_counts"] = {
-                    k: int(counts.get(k, 0)) for k in ["N", "S", "E", "W"]
-                }
-                # Update predictor history
-                predictor.update_history(_signal_state["last_counts"])
+            with _signal_lock:
+                # Update counts if provided
+                if "vehicle_counts" in data:
+                    counts = data["vehicle_counts"]
+                    _signal_state["last_counts"] = {
+                        k: int(counts.get(k, 0)) for k in ["N", "S", "E", "W"]
+                    }
+                    # Update predictor history
+                    predictor.update_history(_signal_state["last_counts"])
 
-            # Update ambulance state if provided
-            if "ambulance_detected" in data:
-                _signal_state["ambulance_detected"] = bool(data["ambulance_detected"])
-                _signal_state["ambulance_direction"] = int(
-                    data.get("ambulance_direction", -1)
-                )
+                # Update ambulance state if provided
+                if "ambulance_detected" in data:
+                    _signal_state["ambulance_detected"] = bool(data["ambulance_detected"])
+                    _signal_state["ambulance_direction"] = int(
+                        data.get("ambulance_direction", -1)
+                    )
 
-            # Update XGBoost predictions
-            pred = predictor.predict(_signal_state["last_counts"], prediction_seconds=60)
-            _signal_state["last_predictions"] = pred.predicted_densities
+                # Update XGBoost predictions
+                pred = predictor.predict(_signal_state["last_counts"], prediction_seconds=60)
+                _signal_state["last_predictions"] = pred.predicted_densities
 
-            # Check if current green phase has expired → let RL decide next duration
-            if now >= _signal_state["green_expires_at"]:
-                # Flip phase
-                _signal_state["phase"] = 1 - _signal_state["phase"]
-                _signal_state["phase_start_time"] = now
+                # Check if current green phase has expired → let RL decide next duration
+                if now >= _signal_state["green_expires_at"]:
+                    # Flip phase
+                    _signal_state["phase"] = 1 - _signal_state["phase"]
+                    _signal_state["phase_start_time"] = now
 
-                # Ask RL agent for new green duration
-                detections = {
-                    "vehicle_counts":      _signal_state["last_counts"],
-                    "predicted_densities": _signal_state["last_predictions"],
-                    "current_phase":       _signal_state["phase"],
-                    "time_in_phase":       0.0,
-                    "ambulance_detected":  _signal_state["ambulance_detected"],
-                    "ambulance_direction": _signal_state["ambulance_direction"],
-                }
-                green_dur = agent.get_action(detections)
-                _signal_state["current_green_duration"] = green_dur
-                _signal_state["green_expires_at"] = now + green_dur
+                    # Ask RL agent for new green duration
+                    detections = {
+                        "vehicle_counts":      _signal_state["last_counts"],
+                        "predicted_densities": _signal_state["last_predictions"],
+                        "current_phase":       _signal_state["phase"],
+                        "time_in_phase":       0.0,
+                        "ambulance_detected":  _signal_state["ambulance_detected"],
+                        "ambulance_direction": _signal_state["ambulance_direction"],
+                    }
+                    green_dur = agent.get_action(detections)
+                    _signal_state["current_green_duration"] = green_dur
+                    _signal_state["green_expires_at"] = now + green_dur
 
         # ── Build response ────────────────────────────────────────────────
-        phase = _signal_state["phase"]
-        phase_start = _signal_state["phase_start_time"]
-        green_dur = _signal_state["current_green_duration"]
-        time_in_phase = now - phase_start
-        time_remaining = max(0.0, _signal_state["green_expires_at"] - now)
+        with _signal_lock:
+            phase = _signal_state["phase"]
+            phase_start = _signal_state["phase_start_time"]
+            green_dur = _signal_state["current_green_duration"]
+            time_remaining = max(0.0, _signal_state["green_expires_at"] - now)
+            time_in_phase = now - phase_start
 
         # Map phase → signal colours for all 4 directions
         if phase == 0:  # NS green

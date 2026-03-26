@@ -154,7 +154,7 @@ def evaluate() -> None:
 
     # 2. Load model
     print(f"\nLoading model from: {MODEL_PATH}")
-    model = DQN.load(MODEL_PATH, env=TrafficEnv())
+    model = DQN.load(MODEL_PATH)
     print("✅  Model loaded.\n")
 
     results: dict[str, tuple] = {}

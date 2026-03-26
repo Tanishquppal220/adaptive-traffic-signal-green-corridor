@@ -200,18 +200,18 @@ def train() -> DQN:
     print("=" * 65)
 
     # Step 1: baseline
-    print("\n[1/4] Measuring fixed-30s baseline (100 episodes)…")
+    print("\n[1/5] Measuring fixed-30s baseline (100 episodes)…")
     baseline_mean, baseline_std = evaluate_fixed_baseline(30, n_episodes=100)
     print(f"      Fixed-30s baseline : {baseline_mean:9.1f} ± {baseline_std:.1f}")
 
     # Step 2: build environment
-    print("\n[2/4] Creating training environment…")
+    print("\n[2/5] Creating training environment…")
     env = Monitor(TrafficEnv())
     print(f"      Observation space  : {env.observation_space}")
     print(f"      Action space       : {env.action_space}")
 
     # Step 3: build DQN
-    print("\n[3/4] Building DQN model…")
+    print("\n[3/5] Building DQN model…")
     model = DQN(
         policy="MlpPolicy",
         env=env,
@@ -232,7 +232,7 @@ def train() -> DQN:
     print(f"      Parameters         : {n_params:,}")
 
     # Step 4: train
-    print(f"\n[4/4] Training for {TOTAL_TIMESTEPS:,} steps…")
+    print(f"\n[4/5] Training for {TOTAL_TIMESTEPS:,} steps…")
     print(f"      (progress printed every {EpisodeRewardTracker.PRINT_EVERY} episodes)\n")
 
     tracker = EpisodeRewardTracker()

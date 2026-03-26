@@ -137,16 +137,13 @@ class TrafficEnv(gym.Env):
 
         After the green duration expires the phase flips (NS ↔ EW).
         """
-        assert self.action_space.contains(action), f"Invalid action: {action}"
+        if not self.action_space.contains(action):
+            raise ValueError(f"Invalid action: {action}")
         green_seconds = GREEN_DURATIONS[action]
 
         # Penalty for flipping phase too quickly
-        premature_switch = (
-            self._phase != int(self._phase == 0)  # will switch after this step
-            and self._time_in_phase < MIN_PHASE_TIME
-        )
-        # Simpler check: we ALWAYS flip after a step, so penalise if current
-        # time in phase was very short (agent keeps oscilating)
+        # We ALWAYS flip after a step, so penalise if current
+        # time in phase was very short (agent keeps oscillating)
         premature_switch = self._time_in_phase < MIN_PHASE_TIME and self._time_in_phase > 0
 
         reward = 0.0
@@ -189,6 +186,10 @@ class TrafficEnv(gym.Env):
             # 5. Queue waiting penalty (all lanes, every second)
             reward -= float(np.sum(self._queues)) * WAIT_PENALTY
 
+            # Stop once episode limit is reached
+            if self._step_count >= EPISODE_STEPS:
+                break
+
         # 6. Premature phase-switch penalty (applied once per step)
         if premature_switch:
             reward -= PREMATURE_SWITCH_PENALTY
@@ -198,8 +199,8 @@ class TrafficEnv(gym.Env):
         self._predicted = np.clip(self._queues + noise, 0, MAX_QUEUE)
 
         # ── Flip phase ────────────────────────────────────────────────────
-        self._time_in_phase = green_seconds  # track how long we just spent
         self._phase = 1 - self._phase
+        self._time_in_phase = 0  # reset: new phase has just started
 
         # ── Termination ───────────────────────────────────────────────────
         terminated = False

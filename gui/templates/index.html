@@ -538,8 +538,9 @@
                     latestVehicleCount = data.vehicle_count;
                     statusEl.textContent = `Live ✓  —  ${data.vehicle_count} vehicle(s) detected`;
 
-                    // Push count to signal controller
-                    pushCountsToSignalAPI({ N: data.vehicle_count, S: 0, E: 0, W: 0 });
+                    // NOTE: Live feed only provides a total vehicle_count, not per-lane counts.
+                    // Avoid pushing biased N-only data to /signal_decision until the backend
+                    // returns per-lane (N/S/E/W) counts for each frame.
                 } catch (e) {
                     statusEl.textContent = 'Inference failed.';
                 } finally {

@@ -45,7 +45,7 @@ We created a custom `gymnasium.Env` class called `TrafficEnv`. Key design decisi
   - 1 ambulance present flag (0 or 1)
   - 1 ambulance direction (normalized 0–3)
 
-- **Action space (discrete, 5 actions):**
+- **Action space (discrete, 6 actions):**
   Mapped directly to green light durations:
   ```
   Action 0 → 10s
@@ -53,16 +53,17 @@ We created a custom `gymnasium.Env` class called `TrafficEnv`. Key design decisi
   Action 2 → 30s
   Action 3 → 40s
   Action 4 → 50s
+  Action 5 → 60s
   ```
 
 - **Vehicle arrival model:** Poisson distribution (λ = time × density) — reflects realistic random arrivals.
 
 - **Reward function:**
   ```
-  reward = −(weighted queue length)
-         − (waiting time penalty)
-         + (throughput bonus if ambulance cleared)
-         − 500  (if ambulance missed — emergency penalty)
+  reward = − (per-second waiting penalty for all vehicles)
+         − (additional per-second penalty while an ambulance is waiting)
+         + (one-time bonus when the ambulance is successfully cleared)
+         − (one-time penalty if agent switches phase too quickly)
   ```
 
 ---
