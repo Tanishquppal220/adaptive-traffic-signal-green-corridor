@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import xgboost as xgb
 
 try:
     import xgboost as xgb  # type: ignore
@@ -52,19 +51,11 @@ class DensityPrediction:
 class TrafficDensityPredictor:
     """Predicts traffic density using trained XGBoost models per direction.
 
-    Loads native XGBoost .ubj models for each lane (N/S/E/W) from config.
+    Loads native XGBoost .ubj Booster models for each lane (N/S/E/W) from config.
     Falls back to heuristic-based prediction if model loading fails.
 
-    Strategy:
-    - Primary: Use trained XGBoost Booster models (xgb.Booster) for each direction
-    - Fallback: Linear trend extrapolation if models unavailable
-    - Input: Current densities + historical pattern + horizon
-    - Features: 5-value history + normalized prediction horizon
-    Loads XGBoost models for each lane (N/S/E/W) from config.
-    Raises exceptions if models cannot be loaded.
-
     Features:
-    - Uses XGBoost models trained on 404-feature schema
+    - Uses XGBoost Booster models trained on 404-feature schema
     - Input: 100 timesteps x 4 directions + cyclic time features
     - Output: Predicted mean density over next 60 seconds
     - Clamps predictions to reasonable bounds (0-50 vehicles)
@@ -113,41 +104,13 @@ class TrafficDensityPredictor:
                 self._use_ml_models = True
                 print("Using trained XGBoost models for density prediction")
             else:
+                self._use_ml_models = False
                 print(
                     f"Falling back to heuristic prediction "
                     f"({len(self._models)}/4 models loaded)"
-            from config import DENSITY_PREDICTOR_MODELS
-
-            model_paths = DENSITY_PREDICTOR_MODELS
-
-        if not model_paths:
-            raise ValueError("No model paths provided. Cannot initialize TrafficDensityPredictor.")
-
-        # Load trained models for each lane (strict validation)
-        print("Loading density predictor models...")
-        for lane in _DIRECTIONS:
-            model_path = model_paths.get(lane)
-
-            if not model_path:
-                raise ValueError(f"Model path for lane {lane} is missing from config")
-
-            if not Path(model_path).exists():
-                raise FileNotFoundError(
-                    f"Model file for lane {lane} not found at {model_path}. "
-                    f"Ensure all trained models are present in the models/ directory."
                 )
-
-            try:
-                model = xgb.XGBRegressor()
-                model.load_model(model_path)
-                self._models[lane] = model
-                print(f"  ✓ Loaded model for lane {lane}")
-            except Exception as e:
-                raise RuntimeError(
-                    f"Failed to load model for lane {lane} from {model_path}: {e}"
-                ) from e
-
-        print(f"✓ Successfully loaded all {len(self._models)} ML models for density prediction")
+        else:
+            self._use_ml_models = False
 
     def update_history(self, current_densities: dict[str, float]) -> None:
         """Update the historical record with current densities.
@@ -195,6 +158,26 @@ class TrafficDensityPredictor:
         features = np.array(lag_block + time_feats, dtype=np.float32)
         return features.reshape(1, -1)
 
+    def _heuristic_predict(
+        self, current: float, prediction_seconds: int, lane: str = "N"
+    ) -> tuple[float, float]:
+        """Fallback heuristic when ML model is unavailable.
+
+        Uses recent lane-specific history slope for linear extrapolation, or
+        returns the current value if insufficient history.
+
+        Returns:
+            (pred_value, confidence) tuple.
+        """
+        if len(self._history) >= 3:
+            recent = [s.get(lane, 0.0) for s in self._history[-3:]]
+            slope = (recent[-1] - recent[0]) / 2.0
+            pred_value = float(np.clip(current + slope * (prediction_seconds / 60.0), 0, 50))
+        else:
+            pred_value = float(current)
+        conf = max(0.3, 0.5 - (prediction_seconds / 300.0))
+        return pred_value, round(conf, 2)
+
     def predict(
         self,
         current_densities: dict[str, float],
@@ -217,43 +200,6 @@ class TrafficDensityPredictor:
         confidence = {}
         now = datetime.now().isoformat()
 
-        for lane in ["N", "S", "E", "W"]:
-            current = current_densities.get(lane, 0)
-            hist = self._history.get(lane, [])
-
-            # Try ML model prediction first
-            if (
-                self._use_ml_models
-                and lane in self._models
-                and len(hist) > 0
-            ):
-                try:
-                    features = self._prepare_features(
-                        hist, current, prediction_seconds
-                    )
-                    # XGBoost Booster.predict() needs a DMatrix input
-                    dmatrix = xgb.DMatrix(features)
-                    pred_value = float(
-                        self._models[lane].predict(dmatrix)[0]
-                    )
-                    # Clamp to reasonable bounds
-                    pred_value = max(0, min(50, pred_value))
-                    # Higher confidence for ML predictions
-                    conf = max(
-                        0.6,
-                        1.0 - (prediction_seconds / 150.0),
-                    )
-                except Exception as e:
-                    print(f"ML prediction failed for {lane}: {e}")
-                    # Fall back to heuristic
-                    pred_value, conf = self._heuristic_predict(
-                        hist, current, prediction_seconds
-                    )
-            else:
-                # Use heuristic prediction
-                pred_value, conf = self._heuristic_predict(
-                    hist, current, prediction_seconds
-                )
         # Prepare shared features (same for all direction models)
         features = self._prepare_features()
 
@@ -262,13 +208,19 @@ class TrafficDensityPredictor:
         base_conf = 0.6 + 0.35 * history_ratio  # 0.6 to 0.95
 
         for lane in _DIRECTIONS:
-            pred_value = float(self._models[lane].predict(features)[0])
-
-            # Clamp to reasonable bounds
-            pred_value = max(0, min(50, pred_value))
+            if self._use_ml_models and lane in self._models:
+                assert xgb is not None  # guaranteed by _use_ml_models flag
+                # XGBoost Booster.predict() requires a DMatrix input
+                dmatrix = xgb.DMatrix(features)
+                pred_value = float(self._models[lane].predict(dmatrix)[0])
+                pred_value = max(0, min(50, pred_value))
+                conf = round(base_conf, 2)
+            else:
+                current = current_densities.get(lane, 0)
+                pred_value, conf = self._heuristic_predict(current, prediction_seconds, lane)
 
             predicted[lane] = round(pred_value, 1)
-            confidence[lane] = round(base_conf, 2)
+            confidence[lane] = conf
 
         return DensityPrediction(
             predicted_densities=predicted,
