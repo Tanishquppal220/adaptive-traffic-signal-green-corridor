@@ -22,6 +22,10 @@ from typing import Any
 import numpy as np
 import xgboost as xgb
 
+try:
+    import xgboost as xgb  # type: ignore
+except ImportError:
+    xgb = None  # type: ignore
 # Constants matching training notebook (traffic-Density.ipynb)
 _DIRECTIONS = ["N", "S", "E", "W"]
 _WINDOW = 100  # 100 timesteps of history (matches training WINDOW)
@@ -48,6 +52,14 @@ class DensityPrediction:
 class TrafficDensityPredictor:
     """Predicts traffic density using trained XGBoost models per direction.
 
+    Loads native XGBoost .ubj models for each lane (N/S/E/W) from config.
+    Falls back to heuristic-based prediction if model loading fails.
+
+    Strategy:
+    - Primary: Use trained XGBoost Booster models (xgb.Booster) for each direction
+    - Fallback: Linear trend extrapolation if models unavailable
+    - Input: Current densities + historical pattern + horizon
+    - Features: 5-value history + normalized prediction horizon
     Loads XGBoost models for each lane (N/S/E/W) from config.
     Raises exceptions if models cannot be loaded.
 
@@ -72,6 +84,38 @@ class TrafficDensityPredictor:
 
         # Load model paths from config if not provided
         if model_paths is None:
+            try:
+                from config import DENSITY_PREDICTOR_MODELS
+                model_paths = DENSITY_PREDICTOR_MODELS
+            except ImportError:
+                model_paths = {}
+
+        # Load trained XGBoost models for each lane (.ubj native format)
+        if xgb is not None and model_paths:
+            for lane in ["N", "S", "E", "W"]:
+                try:
+                    model_path = model_paths.get(lane)
+                    if model_path and Path(model_path).exists():
+                        booster = xgb.Booster()
+                        booster.load_model(str(model_path))  # native .ubj loader
+                        self._models[lane] = booster
+                    else:
+                        print(
+                            f"Warning: Model for lane {lane} not found "
+                            f"at {model_path}"
+                        )
+                except Exception as e:
+                    print(
+                        f"Warning: Failed to load model for lane {lane}: {e}")
+
+            # Enable ML models only if all 4 lanes loaded successfully
+            if len(self._models) == 4:
+                self._use_ml_models = True
+                print("Using trained XGBoost models for density prediction")
+            else:
+                print(
+                    f"Falling back to heuristic prediction "
+                    f"({len(self._models)}/4 models loaded)"
             from config import DENSITY_PREDICTOR_MODELS
 
             model_paths = DENSITY_PREDICTOR_MODELS
@@ -173,6 +217,43 @@ class TrafficDensityPredictor:
         confidence = {}
         now = datetime.now().isoformat()
 
+        for lane in ["N", "S", "E", "W"]:
+            current = current_densities.get(lane, 0)
+            hist = self._history.get(lane, [])
+
+            # Try ML model prediction first
+            if (
+                self._use_ml_models
+                and lane in self._models
+                and len(hist) > 0
+            ):
+                try:
+                    features = self._prepare_features(
+                        hist, current, prediction_seconds
+                    )
+                    # XGBoost Booster.predict() needs a DMatrix input
+                    dmatrix = xgb.DMatrix(features)
+                    pred_value = float(
+                        self._models[lane].predict(dmatrix)[0]
+                    )
+                    # Clamp to reasonable bounds
+                    pred_value = max(0, min(50, pred_value))
+                    # Higher confidence for ML predictions
+                    conf = max(
+                        0.6,
+                        1.0 - (prediction_seconds / 150.0),
+                    )
+                except Exception as e:
+                    print(f"ML prediction failed for {lane}: {e}")
+                    # Fall back to heuristic
+                    pred_value, conf = self._heuristic_predict(
+                        hist, current, prediction_seconds
+                    )
+            else:
+                # Use heuristic prediction
+                pred_value, conf = self._heuristic_predict(
+                    hist, current, prediction_seconds
+                )
         # Prepare shared features (same for all direction models)
         features = self._prepare_features()
 

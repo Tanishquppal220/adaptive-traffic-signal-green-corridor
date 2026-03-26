@@ -1,56 +1,40 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-    <title>Four-Way Intersection Test</title>
+    <meta charset="UTF-8" />
+    <title>Four-Way Intersection — Detection Test</title>
+    <meta name="description" content="Upload one image per lane to run YOLO detection and get RL-based signal timing recommendations." />
     <style>
-        *,
-        *::before,
-        *::after {
-            box-sizing: border-box;
-        }
+        *, *::before, *::after { box-sizing: border-box; }
 
         body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            background: #1a1a1a;
-            color: #eee;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #0f1117;
+            color: #e0e0e0;
             margin: 0;
             padding: 24px;
         }
 
-        h1 {
-            margin-bottom: 6px;
-        }
+        h1 { margin-bottom: 4px; font-size: 1.5rem; font-weight: 700; }
 
-        .subtitle {
-            color: #888;
-            font-size: 0.9em;
-            margin-bottom: 24px;
-        }
+        .subtitle { color: #888; font-size: 0.88rem; margin-bottom: 22px; }
+        .subtitle a { color: #4fc3f7; text-decoration: none; }
+        .subtitle a:hover { text-decoration: underline; }
 
-        a {
-            color: #4fc3f7;
-            text-decoration: none;
-        }
-
-        a:hover {
-            text-decoration: underline;
-        }
-
-        /* ── Intersection cross layout ─────────────────────────── */
+        /* ── Intersection upload grid ── */
         .intersection-grid {
             display: grid;
             grid-template-columns: 1fr 220px 1fr;
             grid-template-rows: 1fr 220px 1fr;
             gap: 12px;
             width: fit-content;
-            margin: 0 auto 32px;
+            margin: 0 auto 28px;
         }
 
         .lane-cell {
-            background: #2a2a2a;
-            border: 2px dashed #555;
+            background: #161b27;
+            border: 2px dashed #2a3550;
             border-radius: 10px;
             padding: 18px 14px;
             display: flex;
@@ -61,182 +45,193 @@
             min-width: 180px;
         }
 
-        /* positional slots */
-        .cell-N {
-            grid-column: 2;
-            grid-row: 1;
-        }
-
-        .cell-W {
-            grid-column: 1;
-            grid-row: 2;
-        }
-
+        .cell-N  { grid-column: 2; grid-row: 1; }
+        .cell-W  { grid-column: 1; grid-row: 2; }
         .cell-centre {
-            grid-column: 2;
-            grid-row: 2;
-            background: #111;
-            border: 2px solid #333;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2em;
-            color: #555;
-            border-radius: 10px;
+            grid-column: 2; grid-row: 2;
+            background: #0a0d14;
+            border: 2px solid #1e2535;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 2em; color: #333; border-radius: 10px;
         }
-
-        .cell-E {
-            grid-column: 3;
-            grid-row: 2;
-        }
-
-        .cell-S {
-            grid-column: 2;
-            grid-row: 3;
-        }
+        .cell-E  { grid-column: 3; grid-row: 2; }
+        .cell-S  { grid-column: 2; grid-row: 3; }
 
         .lane-cell .lane-label {
-            font-size: 1.1em;
-            font-weight: bold;
-            color: #4fc3f7;
-            letter-spacing: 1px;
+            font-size: 1em; font-weight: 700;
+            color: #4fc3f7; letter-spacing: 1px;
         }
+        .lane-cell input[type="file"] { font-size: 0.78em; color: #aaa; max-width: 160px; }
 
-        .lane-cell input[type="file"] {
-            font-size: 0.8em;
-            color: #ccc;
-            max-width: 160px;
-        }
-
-        /* ── Submit button ─────────────────────────────────────── */
-        .submit-row {
-            margin: 12px 0 32px;
-        }
-
+        .submit-row { margin: 4px 0 32px; text-align: center; }
         .submit-row button {
-            padding: 12px 40px;
-            font-size: 1em;
-            background: #4caf50;
-            color: #fff;
-            border: none;
+            padding: 12px 44px; font-size: 0.95em; font-weight: 700;
+            background: #2e7d32; color: #fff; border: none;
+            border-radius: 8px; cursor: pointer; transition: background 0.2s;
+        }
+        .submit-row button:hover { background: #388e3c; }
+
+        /* ── Signal Decision panel ── */
+        .signal-panel {
+            max-width: 860px;
+            margin: 0 auto 40px;
+            background: #161b27;
+            border: 1px solid #1e2535;
+            border-radius: 14px;
+            padding: 22px 26px;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .panel-title {
+            font-size: 1rem; font-weight: 700; color: #e0e0e0;
+        }
+
+        .rl-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 0.72rem; background: #1a2840;
+            border: 1px solid #1e3a5f; border-radius: 20px;
+            padding: 4px 12px; color: #4fc3f7; font-weight: 600;
+        }
+        .rl-dot { width: 7px; height: 7px; border-radius: 50%; background: #4fc3f7; }
+        .rl-dot.offline { background: #555; }
+
+        /* Phase hero */
+        .phase-hero {
+            text-align: center;
+            margin-bottom: 22px;
+        }
+        .phase-name {
+            font-size: 1.6rem; font-weight: 800; letter-spacing: 1px;
+            color: #43a047;
+        }
+        .phase-sub {
+            font-size: 0.82rem; color: #556; margin-top: 2px;
+        }
+        .green-pill {
+            display: inline-block;
+            margin-top: 8px;
+            background: #1b3e1e;
+            border: 1px solid #2e7d32;
+            color: #66bb6a;
+            border-radius: 20px;
+            padding: 4px 20px;
+            font-size: 0.9rem;
+            font-weight: 700;
+        }
+
+        /* Signal lights row */
+        .lights-row {
+            display: flex;
+            justify-content: center;
+            gap: 32px;
+            margin-bottom: 22px;
+        }
+        .light-item {
+            display: flex; flex-direction: column;
+            align-items: center; gap: 6px;
+        }
+        .light-dir {
+            font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 1px; color: #556;
+        }
+        .traffic-light {
+            width: 32px; height: 32px; border-radius: 50%;
+            border: 2px solid #222;
+        }
+        .traffic-light.green { background: #43a047; box-shadow: 0 0 12px #43a04799; }
+        .traffic-light.red   { background: #e53935; box-shadow: 0 0 12px #e5393566; }
+
+        /* Comparison table */
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+        }
+        .data-header {
+            font-size: 0.7rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.8px;
+            color: #445; margin-bottom: 6px; text-align: center;
+        }
+        .data-cell {
+            background: #0f1420;
             border-radius: 8px;
-            cursor: pointer;
-            transition: background 0.2s;
+            padding: 10px;
+            text-align: center;
+        }
+        .data-cell .dir { font-size: 0.7rem; font-weight: 700; color: #556; letter-spacing: 1px; margin-bottom: 4px; }
+        .data-cell .val { font-size: 1.15rem; font-weight: 700; color: #e0e0e0; }
+        .data-cell .sub { font-size: 0.7rem; color: #667; margin-top: 2px; }
+
+        .section-label {
+            font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.8px; color: #445;
+            margin: 16px 0 8px;
         }
 
-        .submit-row button:hover {
-            background: #388e3c;
+        hr.divider { border: none; border-top: 1px solid #1e2535; margin: 18px 0; }
+
+        /* ── Annotated results ── */
+        .result-section { max-width: 980px; margin: 0 auto 40px; }
+        .result-section h2 {
+            font-size: 1.1rem; margin-bottom: 16px; color: #e0e0e0;
         }
 
-        /* ── Count summary ─────────────────────────────────────── */
-        .count-summary {
-            margin: 0 auto 36px;
-            max-width: 520px;
-        }
-
-        .count-summary h2 {
-            margin-bottom: 12px;
-            color: #4caf50;
-        }
-
-        pre.count-block {
-            background: #0d0d0d;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 18px 24px;
-            font-size: 1.1em;
-            color: #a5d6a7;
-            text-align: left;
-            white-space: pre-wrap;
-            word-break: break-all;
-        }
-
-        /* ── Result images in cross layout ─────────────────────── */
         .result-intersection {
             display: grid;
             grid-template-columns: 1fr 300px 1fr;
             grid-template-rows: 1fr 300px 1fr;
             gap: 12px;
             width: fit-content;
-            margin: 0 auto 40px;
+            margin: 0 auto;
         }
 
         .result-cell {
-            background: #2a2a2a;
-            border: 2px solid #444;
+            background: #161b27;
+            border: 1px solid #1e2535;
             border-radius: 10px;
             padding: 10px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 8px;
         }
-
-        .result-cell-N {
-            grid-column: 2;
-            grid-row: 1;
-        }
-
-        .result-cell-W {
-            grid-column: 1;
-            grid-row: 2;
-        }
-
+        .result-cell-N   { grid-column: 2; grid-row: 1; }
+        .result-cell-W   { grid-column: 1; grid-row: 2; }
         .result-cell-centre {
-            grid-column: 2;
-            grid-row: 2;
-            background: #111;
-            border: 2px solid #333;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2em;
-            color: #555;
-            border-radius: 10px;
+            grid-column: 2; grid-row: 2;
+            background: #0a0d14; border: 1px solid #1e2535;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 2em; color: #333; border-radius: 10px;
         }
+        .result-cell-E   { grid-column: 3; grid-row: 2; }
+        .result-cell-S   { grid-column: 2; grid-row: 3; }
 
-        .result-cell-E {
-            grid-column: 3;
-            grid-row: 2;
+        .dir-label { font-weight: 700; color: #4fc3f7; font-size: 0.88rem; }
+        .count-badge {
+            background: #2e7d32; color: #fff;
+            border-radius: 20px; padding: 2px 14px;
+            font-size: 0.82rem; font-weight: 700;
         }
-
-        .result-cell-S {
-            grid-column: 2;
-            grid-row: 3;
-        }
-
-        .result-cell .dir-label {
-            font-weight: bold;
-            color: #4fc3f7;
-            font-size: 0.95em;
-        }
-
-        .result-cell .count-badge {
-            background: #4caf50;
-            color: #fff;
-            border-radius: 20px;
-            padding: 2px 14px;
-            font-size: 0.9em;
-            font-weight: bold;
-        }
-
         .result-cell img {
-            border-radius: 6px;
-            width: 260px;
-            height: 195px;
-            object-fit: cover;
+            border-radius: 6px; width: 260px; height: 195px; object-fit: cover;
         }
     </style>
 </head>
 
 <body>
     <h1>🚦 Four-Way Intersection — Detection Test</h1>
-    <p class="subtitle">Upload one image per lane, then run detection to see per-lane counts.</p>
-    <p><a href="/">← Back to Live Feed</a> | <a href="/test_emergency">🚑 Emergency Classifier</a> | <a
-            href="/test_traffic_prediction">📊 Traffic Predictor →</a></p>
+    <p class="subtitle">
+        Upload one image per lane. YOLO counts vehicles, XGBoost predicts future density, and the RL agent recommends signal timing.<br>
+        <a href="/">← Live Dashboard</a> &nbsp;|&nbsp;
+        <a href="/test_emergency">🚑 Emergency Classifier</a> &nbsp;|&nbsp;
+        <a href="/test_traffic_prediction">📊 Density Predictor</a>
+    </p>
 
-    <!-- ── Upload form in cross layout ─────────────────────────── -->
+    <!-- Upload form -->
     <form method="POST" enctype="multipart/form-data">
         <div class="intersection-grid">
             <div class="lane-cell cell-N">
@@ -257,43 +252,90 @@
                 <input type="file" name="laneS" accept="image/*" required>
             </div>
         </div>
-
         <div class="submit-row">
-            <button type="submit">Detect Vehicles on All Lanes</button>
+            <button type="submit">🔍 Detect &amp; Get Signal Decision</button>
         </div>
     </form>
 
-    <!-- ── Results ─────────────────────────────────────────────── -->
-    {% if lane_counts %}
-    <div class="count-summary">
-        <h2>Lane Counts</h2>
-        <pre class="count-block">{{ lane_counts | tojson(indent=2) }}</pre>
+    {% if signal_result %}
+    <!-- ── RL Signal Decision Panel ── -->
+    <div class="signal-panel">
+        <div class="panel-header">
+            <div class="panel-title">🤖 RL Signal Decision</div>
+            <div class="rl-badge">
+                <div class="rl-dot {% if not signal_result.rl_model_loaded %}offline{% endif %}"></div>
+                {% if signal_result.rl_model_loaded %}RL Agent (trained){% else %}Fallback policy{% endif %}
+            </div>
+        </div>
+
+        <!-- Phase hero -->
+        <div class="phase-hero">
+            <div class="phase-name">{{ signal_result.phase_label }}</div>
+            <div class="phase-sub">Recommended active phase based on current queue loads</div>
+            <div class="green-pill">🟢 Green for {{ signal_result.green_duration }}s</div>
+        </div>
+
+        <!-- Traffic lights row -->
+        <div class="lights-row">
+            {% for dir in ['N', 'S', 'E', 'W'] %}
+            <div class="light-item">
+                <div class="light-dir">{{ dir }}</div>
+                <div class="traffic-light {{ signal_result.signal_states[dir] | lower }}"></div>
+                <div style="font-size:0.7rem; color:#556;">{{ signal_result.signal_states[dir] }}</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <hr class="divider">
+
+        <!-- Vehicle counts -->
+        <div class="section-label">Vehicle Queue — YOLO Detection</div>
+        <div class="data-grid">
+            {% for dir in ['N', 'S', 'E', 'W'] %}
+            <div class="data-cell">
+                <div class="dir">{{ dir }}</div>
+                <div class="val">{{ signal_result.vehicle_counts[dir] }}</div>
+                <div class="sub">vehicles</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Predicted densities -->
+        <div class="section-label">Predicted Density in 60s — XGBoost</div>
+        <div class="data-grid">
+            {% for dir in ['N', 'S', 'E', 'W'] %}
+            <div class="data-cell">
+                <div class="dir">{{ dir }}</div>
+                <div class="val">{{ "%.1f"|format(signal_result.predicted_densities[dir]) }}</div>
+                <div class="sub">vehicles</div>
+            </div>
+            {% endfor %}
+        </div>
     </div>
 
-    <h2 style="margin-bottom: 16px;">Annotated Frames</h2>
-    <div class="result-intersection">
-        {% for key, label in lanes.items() %}
-        {% if key == 'laneN' %}
-        <div class="result-cell result-cell-N">
-            {% elif key == 'laneS' %}
-            <div class="result-cell result-cell-S">
-                {% elif key == 'laneW' %}
-                <div class="result-cell result-cell-W">
-                    {% else %}
-                    <div class="result-cell result-cell-E">
-                        {% endif %}
-                        <span class="dir-label">{{ label }}</span>
-                        {% if key in lane_images and lane_images[key] %}
-                        <span class="count-badge">{{ lane_counts[key] }} vehicles</span>
-                        <img src="data:image/jpeg;base64,{{ lane_images[key] }}" alt="{{ label }} detection">
-                        {% else %}
-                        <span style="color:#666;">No image</span>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                    <div class="result-cell-centre">✛</div>
-                </div>
+    <!-- ── Annotated detection images ── -->
+    <div class="result-section">
+        <h2>Annotated Lane Images (YOLO)</h2>
+        <div class="result-intersection">
+            {% for key, label in lanes.items() %}
+                {% if key == 'laneN' %}<div class="result-cell result-cell-N">
+                {% elif key == 'laneS' %}<div class="result-cell result-cell-S">
+                {% elif key == 'laneW' %}<div class="result-cell result-cell-W">
+                {% else %}<div class="result-cell result-cell-E">
                 {% endif %}
-</body>
+                    <span class="dir-label">{{ label }}</span>
+                    {% if key in lane_images and lane_images[key] %}
+                    <span class="count-badge">{{ lane_counts[key] }} vehicles</span>
+                    <img src="data:image/jpeg;base64,{{ lane_images[key] }}" alt="{{ label }} detection">
+                    {% else %}
+                    <span style="color:#555;">No image</span>
+                    {% endif %}
+                </div>
+            {% endfor %}
+            <div class="result-cell-centre">✛</div>
+        </div>
+    </div>
+    {% endif %}
 
+</body>
 </html>
