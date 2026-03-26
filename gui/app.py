@@ -134,25 +134,24 @@ def create_app() -> Flask:
                 pred = predictor.predict(dir_counts, prediction_seconds=60)
                 predicted_densities = pred.predicted_densities
 
-                # Try both phases and pick the one the RL agent prefers
-                # (phase 0 = NS green, phase 1 = EW green)
-                results_by_phase: dict[int, int] = {}
-                for phase in (0, 1):
-                    detections = {
-                        "vehicle_counts":      dir_counts,
-                        "predicted_densities": predicted_densities,
-                        "current_phase":       phase,
-                        "time_in_phase":       0.0,
-                        "ambulance_detected":  False,
-                        "ambulance_direction": -1,
-                    }
-                    results_by_phase[phase] = agent.get_action(detections)
-
-                # Heuristic: pick the phase that serves the heavier pair
+                # Heuristic: choose the phase that serves the heavier
+                # traffic pair (phase 0 = NS green, phase 1 = EW green)
                 ns_load = dir_counts["N"] + dir_counts["S"]
                 ew_load = dir_counts["E"] + dir_counts["W"]
                 recommended_phase = 0 if ns_load >= ew_load else 1
-                green_duration = results_by_phase[recommended_phase]
+
+                # Ask the RL agent for the recommended green duration for
+                # the selected phase (the DQN action encodes duration, not
+                # phase selection)
+                detections = {
+                    "vehicle_counts":      dir_counts,
+                    "predicted_densities": predicted_densities,
+                    "current_phase":       recommended_phase,
+                    "time_in_phase":       0.0,
+                    "ambulance_detected":  False,
+                    "ambulance_direction": -1,
+                }
+                green_duration = agent.get_action(detections)
 
                 # Build per-direction signal colour map
                 if recommended_phase == 0:
