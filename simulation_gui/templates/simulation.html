@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adaptive Traffic Signal Simulation</title>
+    <link rel="stylesheet" href="/static/sim.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <h1>🚦 ADAPTIVE TRAFFIC SIGNAL SIMULATION</h1>
+        <div class="mode-badge" id="mode-badge">NORMAL</div>
+    </header>
+
+    <!-- Main Grid Layout -->
+    <main class="main-grid">
+        <!-- Left: Controls Panel -->
+        <aside class="controls-panel">
+            <h2>Controls</h2>
+
+            <!-- Scenario Selector -->
+            <div class="control-group">
+                <label for="scenario-select">Scenario</label>
+                <select id="scenario-select">
+                    {% for key, scenario in scenarios.items() %}
+                    <option value="{{ key }}" {% if key == 'normal' %}selected{% endif %}>
+                        {{ scenario.label }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Simulation Speed -->
+            <div class="control-group">
+                <label>Sim Speed</label>
+                <div class="button-group speed-buttons">
+                    <button data-speed="0.5">0.5x</button>
+                    <button data-speed="1" class="active">1x</button>
+                    <button data-speed="2">2x</button>
+                </div>
+            </div>
+
+            <!-- Auto Generation Toggle -->
+            <div class="control-group">
+                <label>Auto Generate Vehicles</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="auto-gen-toggle" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <!-- Manual Lane Input -->
+            <div class="control-group">
+                <label>Manual Lane Counts</label>
+                <div class="lane-inputs">
+                    <div class="lane-input">
+                        <span class="lane-label">N</span>
+                        <input type="number" id="lane-N" min="0" max="50" value="0">
+                    </div>
+                    <div class="lane-input">
+                        <span class="lane-label">S</span>
+                        <input type="number" id="lane-S" min="0" max="50" value="0">
+                    </div>
+                    <div class="lane-input">
+                        <span class="lane-label">E</span>
+                        <input type="number" id="lane-E" min="0" max="50" value="0">
+                    </div>
+                    <div class="lane-input">
+                        <span class="lane-label">W</span>
+                        <input type="number" id="lane-W" min="0" max="50" value="0">
+                    </div>
+                </div>
+                <button id="apply-counts-btn" class="btn-secondary">Apply Counts</button>
+            </div>
+
+            <!-- Ambulance Trigger -->
+            <div class="control-group">
+                <label>Trigger Ambulance From</label>
+                <div class="button-group ambulance-buttons">
+                    <button data-direction="N">North</button>
+                    <button data-direction="S">South</button>
+                    <button data-direction="E">East</button>
+                    <button data-direction="W">West</button>
+                </div>
+            </div>
+
+            <!-- Reset Button -->
+            <button id="reset-btn" class="btn-danger">🔄 Reset Simulation</button>
+        </aside>
+
+        <!-- Center: SVG Intersection -->
+        <section class="intersection-container">
+            <svg id="intersection-svg" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid meet">
+                <!-- Static elements will be drawn by JS -->
+            </svg>
+        </section>
+
+        <!-- Right: Metrics Panel -->
+        <aside class="metrics-panel">
+            <h2>Live Metrics</h2>
+
+            <!-- Lane Density Bars -->
+            <div class="metrics-section">
+                <h3>Lane Density</h3>
+                <div class="density-bars">
+                    <div class="density-bar-container">
+                        <span class="lane-label">N</span>
+                        <div class="density-bar">
+                            <div class="density-fill" id="density-N"></div>
+                        </div>
+                        <span class="count-label" id="count-N">0</span>
+                    </div>
+                    <div class="density-bar-container">
+                        <span class="lane-label">S</span>
+                        <div class="density-bar">
+                            <div class="density-fill" id="density-S"></div>
+                        </div>
+                        <span class="count-label" id="count-S">0</span>
+                    </div>
+                    <div class="density-bar-container">
+                        <span class="lane-label">E</span>
+                        <div class="density-bar">
+                            <div class="density-fill" id="density-E"></div>
+                        </div>
+                        <span class="count-label" id="count-E">0</span>
+                    </div>
+                    <div class="density-bar-container">
+                        <span class="lane-label">W</span>
+                        <div class="density-bar">
+                            <div class="density-fill" id="density-W"></div>
+                        </div>
+                        <span class="count-label" id="count-W">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Signal Timers -->
+            <div class="metrics-section">
+                <h3>Signal Countdown</h3>
+                <div class="signal-timers">
+                    <div class="signal-timer" id="timer-N">
+                        <span class="timer-dir">N</span>
+                        <span class="timer-dot" id="dot-N"></span>
+                        <span class="timer-value" id="time-N">30</span>
+                    </div>
+                    <div class="signal-timer" id="timer-S">
+                        <span class="timer-dir">S</span>
+                        <span class="timer-dot" id="dot-S"></span>
+                        <span class="timer-value" id="time-S">30</span>
+                    </div>
+                    <div class="signal-timer" id="timer-E">
+                        <span class="timer-dir">E</span>
+                        <span class="timer-dot" id="dot-E"></span>
+                        <span class="timer-value" id="time-E">30</span>
+                    </div>
+                    <div class="signal-timer" id="timer-W">
+                        <span class="timer-dir">W</span>
+                        <span class="timer-dot" id="dot-W"></span>
+                        <span class="timer-value" id="time-W">30</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Stats -->
+            <div class="metrics-section">
+                <h3>Statistics</h3>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Vehicles Passed</span>
+                        <span class="stat-value" id="stat-passed">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Avg Wait Time</span>
+                        <span class="stat-value" id="stat-wait">0s</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Throughput</span>
+                        <span class="stat-value" id="stat-throughput">0/min</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Sim Speed</span>
+                        <span class="stat-value" id="stat-speed">1x</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ML Predictions -->
+            <div class="metrics-section ml-section" id="ml-section">
+                <h3>🤖 ML Predictions (XGBoost)</h3>
+                <div class="ml-status" id="ml-status">Loading models...</div>
+                <div class="ml-predictions" id="ml-predictions" style="display: none;">
+                    <div class="prediction-item">
+                        <span class="pred-label">N</span>
+                        <span class="pred-current" id="pred-curr-N">0</span>
+                        <span class="pred-arrow">→</span>
+                        <span class="pred-future" id="pred-fut-N">0</span>
+                    </div>
+                    <div class="prediction-item">
+                        <span class="pred-label">S</span>
+                        <span class="pred-current" id="pred-curr-S">0</span>
+                        <span class="pred-arrow">→</span>
+                        <span class="pred-future" id="pred-fut-S">0</span>
+                    </div>
+                    <div class="prediction-item">
+                        <span class="pred-label">E</span>
+                        <span class="pred-current" id="pred-curr-E">0</span>
+                        <span class="pred-arrow">→</span>
+                        <span class="pred-future" id="pred-fut-E">0</span>
+                    </div>
+                    <div class="prediction-item">
+                        <span class="pred-label">W</span>
+                        <span class="pred-current" id="pred-curr-W">0</span>
+                        <span class="pred-arrow">→</span>
+                        <span class="pred-future" id="pred-fut-W">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Emergency Detection -->
+            <div class="metrics-section emergency-section" id="emergency-section" style="display: none;">
+                <h3>🚨 Emergency Detection</h3>
+                <div class="emergency-info">
+                    <div class="detection-item">
+                        <span class="detection-label">Visual (YOLO)</span>
+                        <span class="detection-value" id="detection-visual">--</span>
+                    </div>
+                    <div class="detection-item">
+                        <span class="detection-label">Entry Direction</span>
+                        <span class="detection-value" id="detection-entry">--</span>
+                    </div>
+                    <div class="detection-item">
+                        <span class="detection-label">Corridor</span>
+                        <span class="detection-value" id="detection-corridor">--</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Bottom: Event Log -->
+    <footer class="event-log-container">
+        <h3>📋 Event Log</h3>
+        <div class="event-log" id="event-log">
+            <!-- Events will be appended here -->
+        </div>
+    </footer>
+
+    <script src="/static/sim.js"></script>
+</body>
+</html>
