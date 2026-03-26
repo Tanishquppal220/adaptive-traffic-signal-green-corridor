@@ -82,9 +82,7 @@ def create_app() -> Flask:
             return jsonify({"error": "Could not decode image"}), 400
 
         result = detector.detect(img)  # type: ignore[arg-type]
-        annotated = detector.draw_vehicle_count(
-            result.annotated_frame, result.vehicle_count
-        )
+        annotated = detector.draw_vehicle_count(result.annotated_frame, result.vehicle_count)
         _, buf = cv2.imencode(".jpg", annotated)
         b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
         return jsonify({"annotated": b64, "vehicle_count": result.vehicle_count})
@@ -120,8 +118,7 @@ def create_app() -> Flask:
 
                     # Encode to base64 for embedding in the template
                     _, buf = cv2.imencode(".jpg", annotated)
-                    lane_images[lane_key] = base64.b64encode(
-                        buf.tobytes()).decode("utf-8")
+                    lane_images[lane_key] = base64.b64encode(buf.tobytes()).decode("utf-8")
 
             if lane_counts:
                 # Convert laneN/S/E/W keys → N/S/E/W for the models
@@ -206,9 +203,7 @@ def create_app() -> Flask:
                     classification = detector.classify_emergency_vehicle(img)
 
                     # Encode annotated frame to base64
-                    _, buf = cv2.imencode(
-                        ".jpg", classification["annotated_frame"]
-                    )
+                    _, buf = cv2.imencode(".jpg", classification["annotated_frame"])
                     b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
 
                     result = {
@@ -245,9 +240,7 @@ def create_app() -> Flask:
 
                 # Update predictor history and get prediction
                 predictor.update_history(current_densities)
-                prediction = predictor.predict(
-                    current_densities, prediction_seconds=pred_horizon
-                )
+                prediction = predictor.predict(current_densities, prediction_seconds=pred_horizon)
 
                 # Pre-compute history visualization data in Python
                 history_data = {}
@@ -260,16 +253,17 @@ def create_app() -> Flask:
                         bars = []
                         for idx, value in enumerate(hist):
                             is_very_recent = idx == len(hist) - 1
-                            is_recent = idx >= len(
-                                hist) - 3 and idx < len(hist)
+                            is_recent = idx >= len(hist) - 3 and idx < len(hist)
                             opacity = 0.5 + (idx / len(hist)) * 0.5
 
-                            bars.append({
-                                "value": int(value),
-                                "opacity": round(opacity, 2),
-                                "is_very_recent": is_very_recent,
-                                "is_recent": is_recent,
-                            })
+                            bars.append(
+                                {
+                                    "value": int(value),
+                                    "opacity": round(opacity, 2),
+                                    "is_very_recent": is_very_recent,
+                                    "is_recent": is_recent,
+                                }
+                            )
                         history_data[lane] = bars
                     else:
                         history_data[lane] = []
@@ -312,10 +306,14 @@ def create_app() -> Flask:
                 }
             except (ValueError, TypeError) as e:
                 prediction_result = {"error": f"Invalid input: {str(e)}"}
+            except FileNotFoundError as e:
+                prediction_result = {"error": f"Model file missing: {str(e)}"}
+            except RuntimeError as e:
+                prediction_result = {"error": f"Model loading error: {str(e)}"}
+            except Exception as e:
+                prediction_result = {"error": f"Prediction failed: {str(e)}"}
 
-        return render_template(
-            "test_traffic_prediction.html", result=prediction_result
-        )
+        return render_template("test_traffic_prediction.html", result=prediction_result)
 
     # ── RL Signal Decision endpoint ───────────────────────────────────────
 

@@ -1,11 +1,15 @@
-"""Traffic density prediction using trained ML models per lane.
+"""Traffic density prediction using trained XGBoost models per lane.
 
-This module provides traffic density forecasting using joblib-trained ML models
-for each direction (N/S/E/W). Falls back to heuristic prediction if model loading
-fails.
+This module provides traffic density forecasting using XGBoost models trained
+for each direction (N/S/E/W). Requires all models to be present - raises
+exceptions if model loading fails.
 
-Input: Historical lane densities + horizon (seconds).
-Output: Predicted densities for the specified horizon.
+Input: Historical lane densities (100 timesteps x 4 directions).
+Output: Predicted densities for the next 60 seconds.
+
+Feature Schema (404 features, matching Colab training):
+- 400 lag features: 100 timesteps x 4 directions (N/S/E/W), flattened
+- 4 cyclic time features: sin/cos hour, sin/cos day-of-week
 """
 
 from __future__ import annotations
@@ -16,11 +20,16 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import xgboost as xgb
 
 try:
     import xgboost as xgb  # type: ignore
 except ImportError:
     xgb = None  # type: ignore
+# Constants matching training notebook (traffic-Density.ipynb)
+_DIRECTIONS = ["N", "S", "E", "W"]
+_WINDOW = 100  # 100 timesteps of history (matches training WINDOW)
+_PREDICTION_HORIZON_SEC = 60  # Fixed 60s horizon (matches training HORIZON x 3s)
 
 
 @dataclass(frozen=True)
@@ -51,24 +60,27 @@ class TrafficDensityPredictor:
     - Fallback: Linear trend extrapolation if models unavailable
     - Input: Current densities + historical pattern + horizon
     - Features: 5-value history + normalized prediction horizon
+    Loads XGBoost models for each lane (N/S/E/W) from config.
+    Raises exceptions if models cannot be loaded.
+
+    Features:
+    - Uses XGBoost models trained on 404-feature schema
+    - Input: 100 timesteps x 4 directions + cyclic time features
+    - Output: Predicted mean density over next 60 seconds
+    - Clamps predictions to reasonable bounds (0-50 vehicles)
     """
 
     def __init__(self, model_paths: dict[str, Path] | None = None) -> None:
         """Initialize the predictor and load trained models.
 
         Args:
-            model_paths: Dict with lanes -> Path to joblib .ubj files.
+            model_paths: Dict with lanes -> Path to XGBoost .ubj files.
                         If None, imports from config.
         """
-        self._history: dict[str, list[float]] = {
-            "N": [],
-            "S": [],
-            "E": [],
-            "W": [],
-        }
-        self._max_history: int = 20  # Keep last 20 measurements
+        # Unified history: list of snapshots, each snapshot is {N: x, S: y, E: z, W: w}
+        self._history: list[dict[str, float]] = []
+        self._max_history: int = _WINDOW  # Keep last 100 measurements
         self._models: dict[str, Any] = {}
-        self._use_ml_models: bool = False
 
         # Load model paths from config if not provided
         if model_paths is None:
@@ -104,66 +116,102 @@ class TrafficDensityPredictor:
                 print(
                     f"Falling back to heuristic prediction "
                     f"({len(self._models)}/4 models loaded)"
+            from config import DENSITY_PREDICTOR_MODELS
+
+            model_paths = DENSITY_PREDICTOR_MODELS
+
+        if not model_paths:
+            raise ValueError("No model paths provided. Cannot initialize TrafficDensityPredictor.")
+
+        # Load trained models for each lane (strict validation)
+        print("Loading density predictor models...")
+        for lane in _DIRECTIONS:
+            model_path = model_paths.get(lane)
+
+            if not model_path:
+                raise ValueError(f"Model path for lane {lane} is missing from config")
+
+            if not Path(model_path).exists():
+                raise FileNotFoundError(
+                    f"Model file for lane {lane} not found at {model_path}. "
+                    f"Ensure all trained models are present in the models/ directory."
                 )
 
-    def update_history(
-        self, current_densities: dict[str, float]
-    ) -> None:
+            try:
+                model = xgb.XGBRegressor()
+                model.load_model(model_path)
+                self._models[lane] = model
+                print(f"  ✓ Loaded model for lane {lane}")
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load model for lane {lane} from {model_path}: {e}"
+                ) from e
+
+        print(f"✓ Successfully loaded all {len(self._models)} ML models for density prediction")
+
+    def update_history(self, current_densities: dict[str, float]) -> None:
         """Update the historical record with current densities.
 
         Args:
             current_densities: Dict with lanes (N/S/E/W) -> vehicle count.
         """
-        for lane in ["N", "S", "E", "W"]:
-            count = current_densities.get(lane, 0)
-            if lane in self._history:
-                self._history[lane].append(float(count))
-                # Keep only recent history
-                if len(self._history[lane]) > self._max_history:
-                    self._history[lane].pop(0)
+        # Create snapshot with all 4 directions
+        snapshot = {d: float(current_densities.get(d, 0)) for d in _DIRECTIONS}
+        self._history.append(snapshot)
 
-    def _prepare_features(
-        self,
-        history: list[float],
-        current: float,
-        prediction_seconds: int,
-    ) -> np.ndarray:
-        """Prepare feature vector for ML model prediction.
+        # Keep only recent history
+        if len(self._history) > self._max_history:
+            self._history.pop(0)
 
-        Args:
-            history: Historical density values (last 5).
-            current: Current density value.
-            prediction_seconds: Horizon for prediction.
+    def _prepare_features(self) -> np.ndarray:
+        """Prepare 404-feature vector matching training schema.
 
         Returns:
-            Feature array for model input.
+            Feature array (1, 404) for XGBoost model input.
+            - 400 lag features: 100 timesteps x 4 directions, flattened
+            - 4 cyclic time features: sin/cos hour, sin/cos day-of-week
         """
-        # Use last 5 values from history, or pad with current value
-        if len(history) >= 5:
-            recent_5 = history[-5:]
-        else:
-            recent_5 = history + [current] * (5 - len(history))
+        # Build lag block: 100 timesteps × 4 directions = 400 features
+        lag_block: list[float] = []
+        for snapshot in self._history[-_WINDOW:]:
+            for d in _DIRECTIONS:
+                lag_block.append(snapshot.get(d, 0.0))
 
-        # Normalize prediction horizon (0-1 scale, assuming max 120s)
-        normalized_horizon = min(prediction_seconds / 120.0, 1.0)
+        # Zero-pad if insufficient history (same as training behavior)
+        while len(lag_block) < _WINDOW * len(_DIRECTIONS):
+            lag_block.insert(0, 0.0)
 
-        # Stack features: [h1, h2, h3, h4, h5, horizon]
-        features = np.array(recent_5 + [normalized_horizon], dtype=np.float32)
-        return features.reshape(1, -1)  # Reshape for sklearn model
+        # 4 cyclic time features (matching training)
+        now = datetime.now()
+        hour = now.hour + now.minute / 60
+        dow = now.weekday()
+        time_feats = [
+            np.sin(2 * np.pi * hour / 24),
+            np.cos(2 * np.pi * hour / 24),
+            np.sin(2 * np.pi * dow / 7),
+            np.cos(2 * np.pi * dow / 7),
+        ]
+
+        features = np.array(lag_block + time_feats, dtype=np.float32)
+        return features.reshape(1, -1)
 
     def predict(
         self,
         current_densities: dict[str, float],
-        prediction_seconds: int = 30,
+        prediction_seconds: int = _PREDICTION_HORIZON_SEC,
     ) -> DensityPrediction:
-        """Predict traffic density ahead using ML models or heuristics.
+        """Predict traffic density ahead using trained XGBoost models.
 
         Args:
             current_densities: Current vehicle counts {N/S/E/W -> count}.
-            prediction_seconds: How far ahead to predict (10-90s).
+            prediction_seconds: Kept for API compatibility (model uses fixed 60s horizon).
 
         Returns:
             DensityPrediction with predicted densities and confidence scores.
+
+        Raises:
+            KeyError: If a lane model is missing.
+            RuntimeError: If model prediction fails.
         """
         predicted = {}
         confidence = {}
@@ -206,49 +254,28 @@ class TrafficDensityPredictor:
                 pred_value, conf = self._heuristic_predict(
                     hist, current, prediction_seconds
                 )
+        # Prepare shared features (same for all direction models)
+        features = self._prepare_features()
+
+        # Confidence based on history completeness
+        history_ratio = len(self._history) / _WINDOW
+        base_conf = 0.6 + 0.35 * history_ratio  # 0.6 to 0.95
+
+        for lane in _DIRECTIONS:
+            pred_value = float(self._models[lane].predict(features)[0])
+
+            # Clamp to reasonable bounds
+            pred_value = max(0, min(50, pred_value))
 
             predicted[lane] = round(pred_value, 1)
-            confidence[lane] = conf
+            confidence[lane] = round(base_conf, 2)
 
         return DensityPrediction(
             predicted_densities=predicted,
             confidence_scores=confidence,
-            prediction_horizon=prediction_seconds,
+            prediction_horizon=_PREDICTION_HORIZON_SEC,
             timestamp=now,
         )
-
-    def _heuristic_predict(
-        self,
-        history: list[float],
-        current: float,
-        prediction_seconds: int,
-    ) -> tuple[float, float]:
-        """Fallback heuristic prediction via linear trend extrapolation.
-
-        Args:
-            history: Historical density values.
-            current: Current density value.
-            prediction_seconds: Prediction horizon.
-
-        Returns:
-            Tuple of (predicted_value, confidence_score).
-        """
-        if len(history) >= 2:
-            # Simple linear trend from last 5 measurements
-            recent = history[-5:] if len(history) >= 5 else history
-            trend = (recent[-1] - recent[0]) / (len(recent) - 1)
-            pred_value = current + trend * (prediction_seconds / 5.0)
-        else:
-            # Not enough history: use current value
-            pred_value = current
-
-        # Clamp to reasonable bounds (0-50 vehicles per lane)
-        pred_value = max(0, min(50, pred_value))
-
-        # Confidence decreases with prediction horizon
-        conf = max(0.5, 1.0 - (prediction_seconds / 120.0))
-
-        return pred_value, conf
 
     def get_history(self, lane: str) -> list[float]:
         """Return historical density values for a lane.
@@ -257,11 +284,18 @@ class TrafficDensityPredictor:
             lane: One of 'N', 'S', 'E', 'W'.
 
         Returns:
-            List of recent density measurements.
+            List of recent density measurements for that lane.
         """
-        return self._history.get(lane, [])
+        return [snapshot.get(lane, 0.0) for snapshot in self._history]
+
+    def history_ready(self) -> bool:
+        """Check if sufficient history is collected for reliable predictions.
+
+        Returns:
+            True if history has at least WINDOW (100) samples.
+        """
+        return len(self._history) >= _WINDOW
 
     def clear_history(self) -> None:
         """Reset historical data (for testing)."""
-        for lane in self._history:
-            self._history[lane] = []
+        self._history = []
