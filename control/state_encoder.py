@@ -86,13 +86,13 @@ class StateEncoder:
 
         # Features 0-3: YOLO vehicle counts, normalized
         counts = np.array(
-            [float(vehicle_counts.get(l, 0)) for l in lanes], dtype=np.float32
+            [float(vehicle_counts.get(lane, 0)) for lane in lanes], dtype=np.float32
         )
         norm_counts = np.clip(counts / MAX_QUEUE, 0.0, 1.0)
 
         # Features 4-7: XGBoost predicted densities, normalized
         preds = np.array(
-            [float(predicted_densities.get(l, 0)) for l in lanes], dtype=np.float32
+            [float(predicted_densities.get(lane, 0)) for lane in lanes], dtype=np.float32
         )
         norm_preds = np.clip(preds / MAX_QUEUE, 0.0, 1.0)
 

@@ -33,3 +33,7 @@ CAMERA_BUFFER_SIZE: int = 1
 FLASK_HOST: str = "0.0.0.0"
 FLASK_PORT: int = 5000
 FLASK_DEBUG: bool = True
+
+# ── RL Signal Control ────────────────────────────────────────────────────────
+# Green duration options (seconds) for the RL agent's action space
+GREEN_DURATIONS: list[int] = [10, 20, 30, 40, 50, 60]

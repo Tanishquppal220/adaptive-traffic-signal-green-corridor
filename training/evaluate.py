@@ -29,7 +29,8 @@ import matplotlib.pyplot as plt
 from stable_baselines3 import DQN
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from simulation.traffic_env import TrafficEnv, GREEN_DURATIONS
+from config import GREEN_DURATIONS
+from simulation.traffic_env import TrafficEnv
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 CHECKPOINT_DIR  = os.path.join(os.path.dirname(__file__), "checkpoints")

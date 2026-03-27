@@ -16,23 +16,19 @@ Usage in flask/app.py (after training is done):
 
 from __future__ import annotations
 
-import os
-import sys
 from pathlib import Path
 
-import numpy as np
+from config import GREEN_DURATIONS
+from control.state_encoder import StateEncoder
 
 # ── Lazy imports (avoid importing SB3 until needed) ───────────────────────────
 _sb3_available = False
 try:
     from stable_baselines3 import DQN as _DQN
+
     _sb3_available = True
 except ImportError:
     pass
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from control.state_encoder import StateEncoder
-from simulation.traffic_env import GREEN_DURATIONS
 
 # ── Default model path ────────────────────────────────────────────────────────
 _DEFAULT_MODEL_PATH = (

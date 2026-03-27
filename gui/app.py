@@ -16,10 +16,10 @@ import numpy as np
 from flask import Flask, Response, jsonify, render_template, request
 
 from config import FLASK_DEBUG, FLASK_HOST, FLASK_PORT
+from control.rl_agent import RLAgent
 from detection import VehicleDetector
 from detection.camera import CameraStream, generate_annotated_stream
 from detection.traffic_predictor import TrafficDensityPredictor
-from control.rl_agent import RLAgent
 
 
 def create_app() -> Flask:
@@ -40,14 +40,37 @@ def create_app() -> Flask:
     # Tracks the current phase, how long we've been in it, and the last
     # vehicle counts so /signal_decision can work without camera input.
     _signal_state: dict[str, Any] = {
-        "phase": 0,               # 0 = NS green, 1 = EW green
+        "phase": 0,  # 0 = NS green, 1 = EW green
         "phase_start_time": time.time(),
         "last_counts": {"N": 0, "S": 0, "E": 0, "W": 0},
         "last_predictions": {"N": 0.0, "S": 0.0, "E": 0.0, "W": 0.0},
         "ambulance_detected": False,
         "ambulance_direction": -1,
-        "current_green_duration": 30,   # seconds chosen by RL
+        "current_green_duration": 30,  # seconds chosen by RL
         "green_expires_at": time.time() + 30,
+    }
+
+    # ── Simulation state (for /simulation route) ───────────────────────────
+    # Stores uploaded images and running simulation state for multi-cycle demo
+    _simulation_state: dict[str, Any] = {
+        "initialized": False,
+        "cycle": 0,
+        "phase": 0,  # 0 = NS green, 1 = EW green
+        "green_duration": 30,
+        "phase_steps_completed": 0,
+        "single_cycle_complete": False,
+        "input_mode": "upload",  # "upload" or "manual"
+        "vehicle_counts": {"N": 0, "S": 0, "E": 0, "W": 0},
+        "predicted_densities": {"N": 0.0, "S": 0.0, "E": 0.0, "W": 0.0},
+        "emergency_detected": False,
+        "emergency_lane": None,  # "N", "S", "E", or "W"
+        "emergency_class": None,  # "ambulance", "fire-truck", "police"
+        "lane_images_b64": {},  # Base64-encoded annotated images
+        "detection_results": {},  # Per-lane detection details
+        "confidence": 0.0,  # Predictor confidence (0-1)
+        "vehicles_passed_total": 0,
+        "wait_time_sum": 0.0,
+        "started_at": 0.0,
     }
 
     # ── Routes ───────────────────────────────────────────────────────────
@@ -139,11 +162,11 @@ def create_app() -> Flask:
                 results_by_phase: dict[int, int] = {}
                 for phase in (0, 1):
                     detections = {
-                        "vehicle_counts":      dir_counts,
+                        "vehicle_counts": dir_counts,
                         "predicted_densities": predicted_densities,
-                        "current_phase":       phase,
-                        "time_in_phase":       0.0,
-                        "ambulance_detected":  False,
+                        "current_phase": phase,
+                        "time_in_phase": 0.0,
+                        "ambulance_detected": False,
                         "ambulance_direction": -1,
                     }
                     results_by_phase[phase] = agent.get_action(detections)
@@ -161,13 +184,13 @@ def create_app() -> Flask:
                     signal_states = {"N": "RED", "S": "RED", "E": "GREEN", "W": "GREEN"}
 
                 signal_result = {
-                    "phase":               recommended_phase,
-                    "phase_label":         "NS GREEN" if recommended_phase == 0 else "EW GREEN",
-                    "green_duration":      green_duration,
-                    "signal_states":       signal_states,
-                    "vehicle_counts":      dir_counts,
+                    "phase": recommended_phase,
+                    "phase_label": "NS GREEN" if recommended_phase == 0 else "EW GREEN",
+                    "green_duration": green_duration,
+                    "signal_states": signal_states,
+                    "vehicle_counts": dir_counts,
                     "predicted_densities": predicted_densities,
-                    "rl_model_loaded":     agent.is_loaded,
+                    "rl_model_loaded": agent.is_loaded,
                 }
 
         return render_template(
@@ -361,9 +384,7 @@ def create_app() -> Flask:
             # Update ambulance state if provided
             if "ambulance_detected" in data:
                 _signal_state["ambulance_detected"] = bool(data["ambulance_detected"])
-                _signal_state["ambulance_direction"] = int(
-                    data.get("ambulance_direction", -1)
-                )
+                _signal_state["ambulance_direction"] = int(data.get("ambulance_direction", -1))
 
             # Update XGBoost predictions
             pred = predictor.predict(_signal_state["last_counts"], prediction_seconds=60)
@@ -377,11 +398,11 @@ def create_app() -> Flask:
 
                 # Ask RL agent for new green duration
                 detections = {
-                    "vehicle_counts":      _signal_state["last_counts"],
+                    "vehicle_counts": _signal_state["last_counts"],
                     "predicted_densities": _signal_state["last_predictions"],
-                    "current_phase":       _signal_state["phase"],
-                    "time_in_phase":       0.0,
-                    "ambulance_detected":  _signal_state["ambulance_detected"],
+                    "current_phase": _signal_state["phase"],
+                    "time_in_phase": 0.0,
+                    "ambulance_detected": _signal_state["ambulance_detected"],
                     "ambulance_direction": _signal_state["ambulance_direction"],
                 }
                 green_dur = agent.get_action(detections)
@@ -398,26 +419,530 @@ def create_app() -> Flask:
         # Map phase → signal colours for all 4 directions
         if phase == 0:  # NS green
             signal_states = {"N": "GREEN", "S": "GREEN", "E": "RED", "W": "RED"}
-        else:           # EW green
+        else:  # EW green
             signal_states = {"N": "RED", "S": "RED", "E": "GREEN", "W": "GREEN"}
 
         # Yellow transition: last 3 seconds of a phase
         if time_remaining <= 3.0:
-            for lane in (["N", "S"] if phase == 0 else ["E", "W"]):
+            for lane in ["N", "S"] if phase == 0 else ["E", "W"]:
                 signal_states[lane] = "YELLOW"
 
-        return jsonify({
-            "phase":               phase,
-            "green_duration":      green_dur,
-            "time_in_phase":       round(time_in_phase, 1),
-            "time_remaining":      round(time_remaining, 1),
-            "signal_states":       signal_states,
-            "ambulance_detected":  _signal_state["ambulance_detected"],
-            "ambulance_direction": _signal_state["ambulance_direction"],
-            "rl_model_loaded":     agent.is_loaded,
-            "predicted_densities": _signal_state["last_predictions"],
-            "vehicle_counts":      _signal_state["last_counts"],
-        })
+        return jsonify(
+            {
+                "phase": phase,
+                "green_duration": green_dur,
+                "time_in_phase": round(time_in_phase, 1),
+                "time_remaining": round(time_remaining, 1),
+                "signal_states": signal_states,
+                "ambulance_detected": _signal_state["ambulance_detected"],
+                "ambulance_direction": _signal_state["ambulance_direction"],
+                "rl_model_loaded": agent.is_loaded,
+                "predicted_densities": _signal_state["last_predictions"],
+                "vehicle_counts": _signal_state["last_counts"],
+            }
+        )
+
+    # ── Full Pipeline Simulation routes ───────────────────────────────────
+
+    # Lane to direction index mapping for RL agent
+    LANE_TO_DIRECTION = {"N": 0, "S": 1, "E": 2, "W": 3}
+    # Phase to lane mapping (4-phase system: one direction at a time)
+    PHASE_TO_LANE = {0: "N", 1: "S", 2: "E", 3: "W"}
+    PHASE_LABELS = {0: "NORTH GREEN", 1: "SOUTH GREEN", 2: "EAST GREEN", 3: "WEST GREEN"}
+    EMERGENCY_CLASSES = {"ambulance", "fire-truck", "police"}
+
+    def _build_signal_states(phase: int, yellow: bool = False) -> dict[str, str]:
+        """Build signal states dict for given phase (4-phase system).
+
+        Phase 0: N green, all others red
+        Phase 1: S green, all others red
+        Phase 2: E green, all others red
+        Phase 3: W green, all others red
+        """
+        green_lane = PHASE_TO_LANE[phase]
+        states = {"N": "RED", "S": "RED", "E": "RED", "W": "RED"}
+        states[green_lane] = "YELLOW" if yellow else "GREEN"
+        return states
+
+    def _get_rl_decision_for_phase(
+        phase: int,
+        vehicle_counts: dict[str, int],
+        predicted_densities: dict[str, float],
+        emergency_detected: bool,
+        emergency_lane: str | None,
+    ) -> int:
+        """Get RL agent decision adapted for 4-phase system.
+
+        The RL model was trained on 2-phase (NS vs EW), so we need to:
+        1. Map current 4-phase to 2-phase for RL inference
+        2. Return green duration for the active lane
+        """
+        # Map 4-phase to 2-phase for RL model
+        # Phase 0 (N) or 1 (S) → RL phase 0 (NS)
+        # Phase 2 (E) or 3 (W) → RL phase 1 (EW)
+        rl_phase = 0 if phase in [0, 1] else 1
+
+        amb_dir = LANE_TO_DIRECTION.get(emergency_lane, -1) if emergency_lane else -1
+        detections = {
+            "vehicle_counts": vehicle_counts,
+            "predicted_densities": predicted_densities,
+            "current_phase": rl_phase,  # Use 2-phase for RL model
+            "time_in_phase": 0.0,
+            "ambulance_detected": emergency_detected,
+            "ambulance_direction": amb_dir,
+        }
+        return agent.get_action(detections)
+
+    def _calculate_stats() -> dict[str, float]:
+        started = float(_simulation_state["started_at"]) or time.time()
+        elapsed_minutes = max((time.time() - started) / 60.0, 1 / 60.0)
+        vehicles_passed = int(_simulation_state["vehicles_passed_total"])
+        throughput = vehicles_passed / elapsed_minutes
+        avg_wait = (
+            float(_simulation_state["wait_time_sum"]) / vehicles_passed
+            if vehicles_passed > 0
+            else 0.0
+        )
+        return {
+            "vehicles_passed": vehicles_passed,
+            "avg_wait_seconds": round(avg_wait, 1),
+            "throughput_per_min": round(throughput, 1),
+        }
+
+    def _build_model_outputs(
+        *,
+        vehicle_counts: dict[str, int],
+        predicted_densities: dict[str, float],
+        confidence: float,
+        green_duration: int,
+        phase: int,
+        emergency_detected: bool,
+        emergency_lane: str | None,
+        detection_results: dict[str, dict[str, Any]],
+        input_mode: str,
+    ) -> dict[str, Any]:
+        next_phase = (phase + 1) % 4
+        return {
+            "detection": {
+                "model": "YOLOv8s",
+                "status": "complete" if input_mode == "upload" else "skipped-manual",
+                "vehicle_counts": vehicle_counts,
+                "per_lane": detection_results,
+            },
+            "emergency": {
+                "model": "YOLOv8-cls",
+                "status": "active" if emergency_detected else "clear",
+                "lane": emergency_lane,
+            },
+            "prediction": {
+                "model": "XGBoost",
+                "horizon_seconds": 60,
+                "confidence": round(confidence, 2),
+                "current": vehicle_counts,
+                "predicted": predicted_densities,
+            },
+            "rl": {
+                "model": "DQN",
+                "model_loaded": agent.is_loaded,
+                "decision_seconds": green_duration,
+                "current_phase": PHASE_LABELS[phase],
+                "next_phase": PHASE_LABELS[next_phase],
+                "reason": (
+                    f"Emergency priority for lane {emergency_lane}"
+                    if emergency_detected and emergency_lane
+                    else "Balanced decision from traffic state"
+                ),
+            },
+        }
+
+    def _drain_active_lane_counts(
+        vehicle_counts: dict[str, int], active_lane: str, green_duration: int
+    ) -> tuple[dict[str, int], int]:
+        updated = dict(vehicle_counts)
+        current = int(updated.get(active_lane, 0))
+        if current <= 0:
+            return updated, 0
+        max_drain = max(1, green_duration // 6)
+        drained = min(current, max_drain)
+        updated[active_lane] = current - drained
+        return updated, drained
+
+    @app.route("/simulation", methods=["GET", "POST"])
+    def simulation():
+        """Full pipeline simulation with 4-way intersection visualization.
+
+        GET: Render upload form
+        POST: Process 4 lane images, run full model pipeline, initialize simulation
+        """
+        if request.method == "GET":
+            return render_template("simulation.html")
+
+        lane_keys = ["laneN", "laneS", "laneE", "laneW"]
+        lane_map = {"laneN": "N", "laneS": "S", "laneE": "E", "laneW": "W"}
+        vehicle_counts: dict[str, int] = {}
+        lane_images_b64: dict[str, str] = {}
+        detection_results: dict[str, dict[str, Any]] = {}
+        emergency_detected = False
+        emergency_lane: str | None = None
+        emergency_class: str | None = None
+        input_mode = request.form.get("input_mode", "").strip().lower()
+        manual_counts_supplied = all(
+            request.form.get(f"count{lane}") not in (None, "") for lane in ["N", "S", "E", "W"]
+        )
+        uploaded_all = all(k in request.files and request.files[k].filename for k in lane_keys)
+
+        if input_mode not in {"manual", "upload"}:
+            input_mode = "manual" if manual_counts_supplied and not uploaded_all else "upload"
+
+        if input_mode == "manual":
+            try:
+                vehicle_counts = {
+                    lane: max(0, int(request.form.get(f"count{lane}", "0")))
+                    for lane in ["N", "S", "E", "W"]
+                }
+            except ValueError:
+                return jsonify({"error": "Manual counts must be valid non-negative integers."}), 400
+            emergency_lane_input = request.form.get("emergency_lane", "").strip().upper()
+            if emergency_lane_input in {"N", "S", "E", "W"}:
+                emergency_detected = True
+                emergency_lane = emergency_lane_input
+                emergency_class = "manual-priority"
+            for lane in ["N", "S", "E", "W"]:
+                detection_results[lane] = {
+                    "vehicle_count": vehicle_counts[lane],
+                    "emergency_class": "manual-input",
+                    "emergency_confidence": 1.0 if emergency_lane == lane else 0.0,
+                }
+        else:
+            missing = [
+                k for k in lane_keys if k not in request.files or not request.files[k].filename
+            ]
+            if missing:
+                missing_lanes = [lane_map[k] for k in missing]
+                return jsonify(
+                    {
+                        "error": (
+                            "All 4 lanes required for upload mode. "
+                            f"Missing: {', '.join(missing_lanes)}"
+                        )
+                    }
+                ), 400
+
+            for lane_key in lane_keys:
+                lane = lane_map[lane_key]
+                file = request.files[lane_key]
+
+                try:
+                    file_bytes = np.frombuffer(file.read(), np.uint8)
+                    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+                    if img is None:
+                        detection_results[lane] = {"error": "Invalid image format"}
+                        vehicle_counts[lane] = 0
+                        continue
+
+                    result = detector.detect(img)
+                    vehicle_counts[lane] = result.vehicle_count
+
+                    emergency_result = detector.classify_emergency_vehicle(img)
+                    emg_class = emergency_result.get("class_name", "normal")
+                    emg_conf = emergency_result.get("confidence", 0.0)
+
+                    if emg_class in EMERGENCY_CLASSES and emg_conf > 0.5:
+                        emergency_detected = True
+                        emergency_lane = lane
+                        emergency_class = emg_class
+
+                    annotated = detector.draw_vehicle_count(
+                        result.annotated_frame, result.vehicle_count
+                    )
+                    _, buf = cv2.imencode(".jpg", annotated)
+                    lane_images_b64[lane] = base64.b64encode(buf.tobytes()).decode("utf-8")
+
+                    detection_results[lane] = {
+                        "vehicle_count": result.vehicle_count,
+                        "emergency_class": emg_class,
+                        "emergency_confidence": round(emg_conf, 2),
+                    }
+
+                except Exception as e:
+                    detection_results[lane] = {"error": str(e)}
+                    vehicle_counts[lane] = 0
+
+        # Update predictor history
+        predictor.update_history(vehicle_counts)
+        prediction = predictor.predict(vehicle_counts, prediction_seconds=60)
+
+        # Determine initial phase (0=N, 1=S, 2=E, 3=W) based on traffic load
+        # If emergency, start with that lane
+        if emergency_detected and emergency_lane:
+            initial_phase = LANE_TO_DIRECTION[emergency_lane]  # 0/1/2/3
+        else:
+            # Choose lane with highest density
+            max_lane = max(vehicle_counts.items(), key=lambda x: x[1])[0]
+            initial_phase = LANE_TO_DIRECTION[max_lane]
+
+        # Get RL agent decision for this phase
+        green_duration = _get_rl_decision_for_phase(
+            initial_phase,
+            vehicle_counts,
+            prediction.predicted_densities,
+            emergency_detected,
+            emergency_lane,
+        )
+
+        # Calculate confidence
+        confidence = sum(prediction.confidence_scores.values()) / 4
+
+        # Update simulation state
+        _simulation_state.update(
+            {
+                "initialized": True,
+                "cycle": 1,
+                "phase": initial_phase,
+                "green_duration": green_duration,
+                "phase_steps_completed": 1,
+                "single_cycle_complete": False,
+                "input_mode": input_mode,
+                "vehicle_counts": vehicle_counts,
+                "predicted_densities": prediction.predicted_densities,
+                "emergency_detected": emergency_detected,
+                "emergency_lane": emergency_lane,
+                "emergency_class": emergency_class,
+                "lane_images_b64": lane_images_b64,
+                "detection_results": detection_results,
+                "confidence": round(confidence, 2),
+                "vehicles_passed_total": 0,
+                "wait_time_sum": 0.0,
+                "started_at": time.time(),
+            }
+        )
+        model_outputs = _build_model_outputs(
+            vehicle_counts=vehicle_counts,
+            predicted_densities=prediction.predicted_densities,
+            confidence=confidence,
+            green_duration=green_duration,
+            phase=initial_phase,
+            emergency_detected=emergency_detected,
+            emergency_lane=emergency_lane,
+            detection_results=detection_results,
+            input_mode=input_mode,
+        )
+
+        # Build response
+        return jsonify(
+            {
+                "cycle": 1,
+                "phase": initial_phase,
+                "phase_label": PHASE_LABELS[initial_phase],
+                "green_duration": green_duration,
+                "signal_states": _build_signal_states(initial_phase),
+                "single_cycle_complete": False,
+                "steps_completed": 1,
+                "vehicle_counts": vehicle_counts,
+                "predicted_densities": prediction.predicted_densities,
+                "emergency_detected": emergency_detected,
+                "emergency_lane": emergency_lane,
+                "emergency_class": emergency_class,
+                "rl_model_loaded": agent.is_loaded,
+                "confidence": round(confidence, 2),
+                "lane_images": {
+                    k: f"data:image/jpeg;base64,{v}" for k, v in lane_images_b64.items()
+                },
+                "detection_results": detection_results,
+                "model_outputs": model_outputs,
+                "stats": _calculate_stats(),
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        )
+
+    @app.route("/simulation/next_cycle", methods=["POST"])
+    def simulation_next_cycle():
+        """Advance simulation to next phase/cycle (4-phase system).
+
+        Returns updated signal state for the next phase.
+        """
+        if not _simulation_state["initialized"]:
+            return (
+                jsonify({"error": "Simulation not initialized. POST to /simulation first."}),
+                400,
+            )
+
+        # Advance to next phase (0→1→2→3→0)
+        current_phase = _simulation_state["phase"]
+        emergency_detected = _simulation_state["emergency_detected"]
+        emergency_lane = _simulation_state["emergency_lane"]
+        steps_completed = int(_simulation_state["phase_steps_completed"])
+        if _simulation_state["single_cycle_complete"]:
+            return jsonify(
+                {
+                    "cycle": _simulation_state["cycle"],
+                    "phase": current_phase,
+                    "phase_label": PHASE_LABELS[current_phase],
+                    "green_duration": _simulation_state["green_duration"],
+                    "signal_states": _build_signal_states(current_phase),
+                    "single_cycle_complete": True,
+                    "steps_completed": steps_completed,
+                    "vehicle_counts": _simulation_state["vehicle_counts"],
+                    "predicted_densities": _simulation_state["predicted_densities"],
+                    "emergency_detected": emergency_detected,
+                    "emergency_lane": emergency_lane,
+                    "emergency_class": _simulation_state["emergency_class"],
+                    "rl_model_loaded": agent.is_loaded,
+                    "confidence": _simulation_state["confidence"],
+                    "model_outputs": _build_model_outputs(
+                        vehicle_counts=_simulation_state["vehicle_counts"],
+                        predicted_densities=_simulation_state["predicted_densities"],
+                        confidence=_simulation_state["confidence"],
+                        green_duration=_simulation_state["green_duration"],
+                        phase=current_phase,
+                        emergency_detected=emergency_detected,
+                        emergency_lane=emergency_lane,
+                        detection_results=_simulation_state["detection_results"],
+                        input_mode=_simulation_state["input_mode"],
+                    ),
+                    "stats": _calculate_stats(),
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            )
+
+        active_lane = PHASE_TO_LANE[current_phase]
+        updated_counts, drained = _drain_active_lane_counts(
+            _simulation_state["vehicle_counts"],
+            active_lane,
+            int(_simulation_state["green_duration"]),
+        )
+        _simulation_state["vehicle_counts"] = updated_counts
+        _simulation_state["vehicles_passed_total"] += drained
+        _simulation_state["wait_time_sum"] += sum(updated_counts.values()) * 1.0
+
+        # Emergency override: stay in phase that serves emergency lane
+        if emergency_detected and emergency_lane:
+            required_phase = LANE_TO_DIRECTION[emergency_lane]
+            new_phase = required_phase  # Keep green for emergency lane
+        else:
+            # Normal operation: advance to next phase (4-phase cycle)
+            new_phase = (current_phase + 1) % 4
+
+        # Increment cycle if we wrapped back to phase 0
+        new_cycle = _simulation_state["cycle"]
+        if new_phase == 0 and current_phase == 3:
+            new_cycle += 1
+
+        steps_completed += 1
+        single_cycle_complete = steps_completed >= 4
+
+        # Update predictor and get new prediction
+        predictor.update_history(_simulation_state["vehicle_counts"])
+        prediction = predictor.predict(_simulation_state["vehicle_counts"], prediction_seconds=60)
+
+        # Get RL decision for new phase
+        green_duration = _get_rl_decision_for_phase(
+            new_phase,
+            _simulation_state["vehicle_counts"],
+            prediction.predicted_densities,
+            emergency_detected,
+            emergency_lane,
+        )
+        confidence = sum(prediction.confidence_scores.values()) / 4
+
+        # Update state
+        _simulation_state.update(
+            {
+                "cycle": new_cycle,
+                "phase": new_phase,
+                "green_duration": green_duration,
+                "predicted_densities": prediction.predicted_densities,
+                "confidence": round(confidence, 2),
+                "phase_steps_completed": steps_completed,
+                "single_cycle_complete": single_cycle_complete,
+            }
+        )
+        model_outputs = _build_model_outputs(
+            vehicle_counts=_simulation_state["vehicle_counts"],
+            predicted_densities=prediction.predicted_densities,
+            confidence=confidence,
+            green_duration=green_duration,
+            phase=new_phase,
+            emergency_detected=emergency_detected,
+            emergency_lane=emergency_lane,
+            detection_results=_simulation_state["detection_results"],
+            input_mode=_simulation_state["input_mode"],
+        )
+
+        return jsonify(
+            {
+                "cycle": new_cycle,
+                "phase": new_phase,
+                "phase_label": PHASE_LABELS[new_phase],
+                "green_duration": green_duration,
+                "signal_states": _build_signal_states(new_phase),
+                "single_cycle_complete": single_cycle_complete,
+                "steps_completed": steps_completed,
+                "vehicle_counts": _simulation_state["vehicle_counts"],
+                "predicted_densities": prediction.predicted_densities,
+                "emergency_detected": emergency_detected,
+                "emergency_lane": emergency_lane,
+                "emergency_class": _simulation_state["emergency_class"],
+                "rl_model_loaded": agent.is_loaded,
+                "confidence": round(confidence, 2),
+                "model_outputs": model_outputs,
+                "stats": _calculate_stats(),
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        )
+
+    @app.route("/simulation/ambulance", methods=["POST"])
+    def simulation_ambulance():
+        """Set or clear emergency lane during simulation."""
+        if not _simulation_state["initialized"]:
+            return jsonify({"error": "Simulation not initialized."}), 400
+        payload = request.get_json(silent=True) or {}
+        lane = str(payload.get("lane", "")).upper()
+        if lane == "CLEAR":
+            _simulation_state["emergency_detected"] = False
+            _simulation_state["emergency_lane"] = None
+            _simulation_state["emergency_class"] = None
+        elif lane in {"N", "S", "E", "W"}:
+            _simulation_state["emergency_detected"] = True
+            _simulation_state["emergency_lane"] = lane
+            _simulation_state["emergency_class"] = "manual-priority"
+        else:
+            return jsonify({"error": "lane must be one of N/S/E/W or CLEAR"}), 400
+        return jsonify(
+            {
+                "emergency_detected": _simulation_state["emergency_detected"],
+                "emergency_lane": _simulation_state["emergency_lane"],
+                "emergency_class": _simulation_state["emergency_class"],
+            }
+        )
+
+    @app.route("/simulation/reset", methods=["POST"])
+    def simulation_reset():
+        """Reset simulation state."""
+        _simulation_state.update(
+            {
+                "initialized": False,
+                "cycle": 0,
+                "phase": 0,
+                "green_duration": 30,
+                "phase_steps_completed": 0,
+                "single_cycle_complete": False,
+                "input_mode": "upload",
+                "vehicle_counts": {"N": 0, "S": 0, "E": 0, "W": 0},
+                "predicted_densities": {"N": 0.0, "S": 0.0, "E": 0.0, "W": 0.0},
+                "emergency_detected": False,
+                "emergency_lane": None,
+                "emergency_class": None,
+                "lane_images_b64": {},
+                "detection_results": {},
+                "confidence": 0.0,
+                "vehicles_passed_total": 0,
+                "wait_time_sum": 0.0,
+                "started_at": 0.0,
+            }
+        )
+        return jsonify({"status": "reset", "message": "Simulation state cleared"})
 
     return app
 

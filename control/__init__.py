@@ -5,7 +5,7 @@ Exposes:
     RLAgent      — wraps the trained DQN, exposes get_action()
 """
 
-from control.state_encoder import StateEncoder
 from control.rl_agent import RLAgent
+from control.state_encoder import StateEncoder
 
 __all__ = ["StateEncoder", "RLAgent"]

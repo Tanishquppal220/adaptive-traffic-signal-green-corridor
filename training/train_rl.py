@@ -27,6 +27,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 # Make sure the repo root is on the path so we can import simulation/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from config import GREEN_DURATIONS
 from simulation.traffic_env import TrafficEnv
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -96,7 +97,6 @@ def evaluate_fixed_baseline(
         (mean_reward, std_reward)
     """
     # Action index for green_seconds (must be in GREEN_DURATIONS)
-    from simulation.traffic_env import GREEN_DURATIONS
     action = GREEN_DURATIONS.index(green_seconds)
 
     env = TrafficEnv()

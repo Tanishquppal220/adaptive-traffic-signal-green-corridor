@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Traffic Pipeline Simulation</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #0f1117;
+            color: #e6e6e6;
+            padding: 16px;
+        }
+
+        .page {
+            max-width: 1360px;
+            margin: 0 auto;
+        }
+
+        .title {
+            margin: 0 0 6px;
+            font-size: 1.5rem;
+        }
+
+        .subtitle {
+            color: #9aa0aa;
+            margin: 0 0 16px;
+            font-size: 0.9rem;
+        }
+
+        .subtitle a { color: #61dafb; text-decoration: none; }
+        .subtitle a:hover { text-decoration: underline; }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 320px 1fr 340px;
+            gap: 14px;
+            align-items: start;
+        }
+
+        .panel {
+            background: #171b26;
+            border: 1px solid #252c3f;
+            border-radius: 12px;
+            padding: 14px;
+        }
+
+        .panel h2 {
+            margin: 0 0 10px;
+            font-size: 1rem;
+        }
+
+        .section {
+            margin-bottom: 14px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #2a3145;
+        }
+
+        .section:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+
+        .label {
+            font-size: 0.78rem;
+            color: #8f98aa;
+            margin-bottom: 6px;
+        }
+
+        .row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            border: none;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-weight: 600;
+            cursor: pointer;
+            color: #fff;
+            background: #3a435d;
+        }
+
+        .btn:hover { filter: brightness(1.08); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-primary { background: #2e7d32; }
+        .btn-danger { background: #b33939; }
+        .btn-info { background: #0b7fab; }
+        .btn-warn { background: #b08d00; }
+
+        select,
+        input[type="number"],
+        input[type="file"] {
+            background: #101520;
+            color: #e6e6e6;
+            border: 1px solid #303a54;
+            border-radius: 6px;
+            padding: 6px 8px;
+        }
+
+        .counts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .counts-grid label {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 0.8rem;
+            color: #b8c0d1;
+        }
+
+        .upload-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .upload-grid label {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 0.8rem;
+            color: #b8c0d1;
+        }
+
+        .center-wrap {
+            display: grid;
+            gap: 12px;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            background: #111623;
+            border: 1px solid #273149;
+            padding: 10px 12px;
+            border-radius: 10px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            border: 1px solid #355;
+            background: #1b2336;
+            color: #8ec7ff;
+        }
+
+        .badge.running { background: #18321a; border-color: #2a7a33; color: #7ddc84; }
+        .badge.emergency { background: #391717; border-color: #c94848; color: #ff9a9a; }
+
+        .phase {
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+
+        .timer {
+            font-size: 1.55rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .intersection {
+            background: #111623;
+            border: 1px solid #273149;
+            border-radius: 12px;
+            padding: 10px;
+        }
+
+        .intersection svg {
+            width: 100%;
+            max-width: 620px;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .road { fill: #2b2f38; }
+        .divider { stroke: #f4d35e; stroke-width: 4; stroke-dasharray: 16 12; }
+        .light-box { fill: #111; stroke: #444; stroke-width: 1.5; }
+        .light-off { fill: #2f3646; }
+        .light-red { fill: #e74c3c; filter: drop-shadow(0 0 6px #e74c3c); }
+        .light-yellow { fill: #f1c40f; filter: drop-shadow(0 0 6px #f1c40f); }
+        .light-green { fill: #2ecc71; filter: drop-shadow(0 0 6px #2ecc71); }
+
+        .count-bg { fill: #1f2f4a; rx: 8; }
+        .count-text { fill: #fff; font-size: 16px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+        .dir-text { fill: #aab3c4; font-size: 13px; font-weight: 700; text-anchor: middle; }
+
+        .queue-grid {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .queue {
+            background: #151d2d;
+            border: 1px solid #2b3650;
+            border-radius: 8px;
+            padding: 8px;
+        }
+
+        .queue-title {
+            font-size: 0.78rem;
+            color: #aab3c4;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .queue-track {
+            display: flex;
+            gap: 4px;
+            min-height: 18px;
+            flex-wrap: wrap;
+        }
+
+        .vehicle-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            background: #58a6ff;
+            transition: transform 0.25s ease, opacity 0.25s ease;
+        }
+
+        .vehicle-dot.passing {
+            transform: translateY(-6px);
+            opacity: 0;
+        }
+
+        .right-stack {
+            display: grid;
+            gap: 10px;
+        }
+
+        .metric {
+            font-size: 0.88rem;
+            color: #cad3e3;
+            margin: 4px 0;
+        }
+
+        .density-row {
+            margin-bottom: 8px;
+        }
+
+        .density-head {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.82rem;
+            margin-bottom: 4px;
+        }
+
+        .density-bar {
+            height: 10px;
+            border-radius: 8px;
+            background: #263047;
+            overflow: hidden;
+        }
+
+        .density-fill {
+            height: 100%;
+            width: 0;
+            background: linear-gradient(90deg, #2ecc71, #f1c40f, #e74c3c);
+            transition: width 0.35s ease;
+        }
+
+        .countdown-item {
+            display: grid;
+            grid-template-columns: 16px 1fr auto;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+            font-size: 0.83rem;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #657089;
+        }
+
+        .dot.red { background: #e74c3c; }
+        .dot.yellow { background: #f1c40f; }
+        .dot.green { background: #2ecc71; }
+
+        details {
+            background: #141b2b;
+            border: 1px solid #2a3550;
+            border-radius: 8px;
+            padding: 6px 8px;
+        }
+
+        details summary {
+            cursor: pointer;
+            font-size: 0.83rem;
+            font-weight: 700;
+        }
+
+        .card-body {
+            margin-top: 8px;
+            font-size: 0.78rem;
+            color: #ced5e6;
+            line-height: 1.45;
+        }
+
+        .lane-preview {
+            width: 100%;
+            border-radius: 6px;
+            border: 1px solid #303a54;
+            margin-top: 6px;
+        }
+
+        .footer {
+            margin-top: 14px;
+            text-align: center;
+            color: #9aa0aa;
+            font-size: 0.82rem;
+        }
+
+        .footer a { color: #61dafb; text-decoration: none; margin: 0 8px; }
+
+        @media (max-width: 1200px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page">
+        <h1 class="title">🚦 Full Pipeline Simulation</h1>
+        <p class="subtitle">Upload lane images or enter manual counts to run Detection → Emergency → Prediction → RL in a single presentation cycle. <a href="/">Back to Live Feed</a></p>
+
+        <div class="layout">
+            <section class="panel">
+                <h2>⚙️ Controls</h2>
+
+                <div class="section">
+                    <div class="label">Scenario</div>
+                    <select id="scenarioSelect">
+                        <option value="normal">Normal Traffic</option>
+                        <option value="heavy">Heavy Traffic</option>
+                        <option value="sparse">Sparse Traffic</option>
+                    </select>
+                </div>
+
+                <div class="section">
+                    <div class="label">Input Mode</div>
+                    <div class="row">
+                        <button class="btn btn-info" id="modeUploadBtn" type="button">Use Upload</button>
+                        <button class="btn" id="modeManualBtn" type="button">Use Manual</button>
+                    </div>
+                </div>
+
+                <form id="uploadForm" class="section" enctype="multipart/form-data">
+                    <div class="label">Upload Images (N/S/E/W)</div>
+                    <div class="upload-grid">
+                        <label>N<input name="laneN" type="file" accept="image/*" /></label>
+                        <label>S<input name="laneS" type="file" accept="image/*" /></label>
+                        <label>E<input name="laneE" type="file" accept="image/*" /></label>
+                        <label>W<input name="laneW" type="file" accept="image/*" /></label>
+                    </div>
+                    <div class="row" style="margin-top:8px;">
+                        <button class="btn btn-primary" id="startUploadBtn" type="submit">Start from Upload</button>
+                    </div>
+                </form>
+
+                <form id="manualForm" class="section">
+                    <div class="label">Manual Lane Counts</div>
+                    <div class="counts-grid">
+                        <label>N<input id="countNInput" type="number" min="0" value="12" /></label>
+                        <label>S<input id="countSInput" type="number" min="0" value="10" /></label>
+                        <label>E<input id="countEInput" type="number" min="0" value="6" /></label>
+                        <label>W<input id="countWInput" type="number" min="0" value="8" /></label>
+                    </div>
+                    <div class="row" style="margin-top:8px;">
+                        <button class="btn btn-primary" id="startManualBtn" type="submit">Start from Manual</button>
+                    </div>
+                </form>
+
+                <div class="section">
+                    <div class="label">Simulation Speed</div>
+                    <div class="row">
+                        <button class="btn" data-speed="0.5" type="button">0.5x</button>
+                        <button class="btn btn-info" data-speed="1" type="button">1x</button>
+                        <button class="btn" data-speed="2" type="button">2x</button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="label">Trigger Ambulance</div>
+                    <div class="row">
+                        <button class="btn btn-warn" data-amb="N" type="button">N</button>
+                        <button class="btn btn-warn" data-amb="S" type="button">S</button>
+                        <button class="btn btn-warn" data-amb="E" type="button">E</button>
+                        <button class="btn btn-warn" data-amb="W" type="button">W</button>
+                        <button class="btn" data-amb="CLEAR" type="button">Clear</button>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <button class="btn btn-danger" id="stopBtn" type="button">Stop</button>
+                    <button class="btn" id="resetBtn" type="button">Reset</button>
+                </div>
+            </section>
+
+            <section class="center-wrap">
+                <div class="status-bar">
+                    <span id="statusBadge" class="badge">● Idle</span>
+                    <span class="phase" id="phaseLabel">Awaiting start</span>
+                    <span class="timer" id="timerValue">--s</span>
+                    <span class="badge" id="cycleBadge">Cycle 0 • Step 0/4</span>
+                </div>
+
+                <div class="intersection">
+                    <svg viewBox="0 0 620 620" aria-label="traffic intersection">
+                        <rect class="road" x="235" y="0" width="150" height="620" />
+                        <rect class="road" x="0" y="235" width="620" height="150" />
+
+                        <line class="divider" x1="310" y1="0" x2="310" y2="215" />
+                        <line class="divider" x1="310" y1="405" x2="310" y2="620" />
+                        <line class="divider" x1="0" y1="310" x2="215" y2="310" />
+                        <line class="divider" x1="405" y1="310" x2="620" y2="310" />
+
+                        <g transform="translate(398,65)">
+                            <rect class="light-box" x="-18" y="-8" width="36" height="84" rx="7" />
+                            <circle id="lightN-red" class="light-off" cx="0" cy="8" r="9" />
+                            <circle id="lightN-yellow" class="light-off" cx="0" cy="33" r="9" />
+                            <circle id="lightN-green" class="light-off" cx="0" cy="58" r="9" />
+                        </g>
+
+                        <g transform="translate(222,555)">
+                            <rect class="light-box" x="-18" y="-8" width="36" height="84" rx="7" />
+                            <circle id="lightS-red" class="light-off" cx="0" cy="8" r="9" />
+                            <circle id="lightS-yellow" class="light-off" cx="0" cy="33" r="9" />
+                            <circle id="lightS-green" class="light-off" cx="0" cy="58" r="9" />
+                        </g>
+
+                        <g transform="translate(554,398)">
+                            <rect class="light-box" x="-18" y="-8" width="36" height="84" rx="7" />
+                            <circle id="lightE-red" class="light-off" cx="0" cy="8" r="9" />
+                            <circle id="lightE-yellow" class="light-off" cx="0" cy="33" r="9" />
+                            <circle id="lightE-green" class="light-off" cx="0" cy="58" r="9" />
+                        </g>
+
+                        <g transform="translate(66,222)">
+                            <rect class="light-box" x="-18" y="-8" width="36" height="84" rx="7" />
+                            <circle id="lightW-red" class="light-off" cx="0" cy="8" r="9" />
+                            <circle id="lightW-yellow" class="light-off" cx="0" cy="33" r="9" />
+                            <circle id="lightW-green" class="light-off" cx="0" cy="58" r="9" />
+                        </g>
+
+                        <g transform="translate(310,120)">
+                            <rect class="count-bg" x="-52" y="-18" width="104" height="36" />
+                            <text class="count-text" id="badgeN">0 (+0)</text>
+                        </g>
+                        <g transform="translate(310,500)">
+                            <rect class="count-bg" x="-52" y="-18" width="104" height="36" />
+                            <text class="count-text" id="badgeS">0 (+0)</text>
+                        </g>
+                        <g transform="translate(500,310)">
+                            <rect class="count-bg" x="-52" y="-18" width="104" height="36" />
+                            <text class="count-text" id="badgeE">0 (+0)</text>
+                        </g>
+                        <g transform="translate(120,310)">
+                            <rect class="count-bg" x="-52" y="-18" width="104" height="36" />
+                            <text class="count-text" id="badgeW">0 (+0)</text>
+                        </g>
+
+                        <text class="dir-text" x="310" y="25">N</text>
+                        <text class="dir-text" x="310" y="608">S</text>
+                        <text class="dir-text" x="598" y="314">E</text>
+                        <text class="dir-text" x="20" y="314">W</text>
+                    </svg>
+
+                    <div class="queue-grid">
+                        <div class="queue"><div class="queue-title"><span>N Queue</span><span id="queueNCount">0</span></div><div class="queue-track" id="queueN"></div></div>
+                        <div class="queue"><div class="queue-title"><span>S Queue</span><span id="queueSCount">0</span></div><div class="queue-track" id="queueS"></div></div>
+                        <div class="queue"><div class="queue-title"><span>E Queue</span><span id="queueECount">0</span></div><div class="queue-track" id="queueE"></div></div>
+                        <div class="queue"><div class="queue-title"><span>W Queue</span><span id="queueWCount">0</span></div><div class="queue-track" id="queueW"></div></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="right-stack">
+                <div class="panel">
+                    <h2>📈 Lane Density</h2>
+                    <div id="densityPanel"></div>
+                </div>
+
+                <div class="panel">
+                    <h2>⏱ Signal Countdown</h2>
+                    <div id="countdownPanel"></div>
+                </div>
+
+                <div class="panel">
+                    <h2>📊 Statistics</h2>
+                    <div class="metric">Vehicles Passed: <b id="statPassed">0</b></div>
+                    <div class="metric">Avg Wait: <b id="statWait">0.0s</b></div>
+                    <div class="metric">Throughput: <b id="statThroughput">0.0/min</b></div>
+                </div>
+
+                <div class="panel">
+                    <h2>🤖 ML Models Output</h2>
+                    <details open>
+                        <summary>1) Detection (YOLOv8)</summary>
+                        <div class="card-body" id="cardDetection"></div>
+                    </details>
+                    <details>
+                        <summary>2) Emergency Classifier (YOLOv8-cls)</summary>
+                        <div class="card-body" id="cardEmergency"></div>
+                    </details>
+                    <details>
+                        <summary>3) Density Predictor (XGBoost)</summary>
+                        <div class="card-body" id="cardPrediction"></div>
+                    </details>
+                    <details>
+                        <summary>4) RL Control (DQN)</summary>
+                        <div class="card-body" id="cardRL"></div>
+                    </details>
+                    <div class="card-body" id="thumbsRow"></div>
+                </div>
+            </section>
+        </div>
+
+        <div class="footer">
+            <a href="/">Live Feed</a>
+            <a href="/test">4-Lane Test</a>
+            <a href="/test_emergency">Emergency Test</a>
+            <a href="/test_traffic_prediction">Predictor Test</a>
+        </div>
+    </div>
+
+    <script>
+        let simulationState = null;
+        let speed = 1;
+        let isRunning = false;
+        let countdownTimer = null;
+        let remaining = 0;
+        let displayCounts = { N: 0, S: 0, E: 0, W: 0 };
+
+        const lanes = ['N', 'S', 'E', 'W'];
+
+        function setStatus(text, cls = '') {
+            const badge = document.getElementById('statusBadge');
+            badge.className = 'badge' + (cls ? ' ' + cls : '');
+            badge.textContent = '● ' + text;
+        }
+
+        function setLight(lane, color) {
+            const red = document.getElementById(`light${lane}-red`);
+            const yellow = document.getElementById(`light${lane}-yellow`);
+            const green = document.getElementById(`light${lane}-green`);
+            red.setAttribute('class', color === 'RED' ? 'light-red' : 'light-off');
+            yellow.setAttribute('class', color === 'YELLOW' ? 'light-yellow' : 'light-off');
+            green.setAttribute('class', color === 'GREEN' ? 'light-green' : 'light-off');
+        }
+
+        function laneSignalColor(state, lane) {
+            const color = state.signal_states?.[lane] || 'RED';
+            return color;
+        }
+
+        function updateDensityPanel(state) {
+            const root = document.getElementById('densityPanel');
+            root.innerHTML = '';
+            lanes.forEach((lane) => {
+                const value = Number(state.vehicle_counts?.[lane] || 0);
+                const maxScale = Math.max(20, ...Object.values(state.vehicle_counts || { N: 0, S: 0, E: 0, W: 0 }));
+                const width = Math.min(100, (value / maxScale) * 100);
+                const row = document.createElement('div');
+                row.className = 'density-row';
+                row.innerHTML = `
+                    <div class="density-head"><span>${lane}</span><span>${value}</span></div>
+                    <div class="density-bar"><div class="density-fill" style="width:${width.toFixed(1)}%"></div></div>
+                `;
+                root.appendChild(row);
+            });
+        }
+
+        function updateCountdownPanel(state) {
+            const root = document.getElementById('countdownPanel');
+            root.innerHTML = '';
+            lanes.forEach((lane) => {
+                const c = laneSignalColor(state, lane);
+                const dotClass = c.toLowerCase();
+                const t = c === 'GREEN' ? Math.max(0, Math.round(remaining)) : 0;
+                const row = document.createElement('div');
+                row.className = 'countdown-item';
+                row.innerHTML = `<span class="dot ${dotClass}"></span><span>${lane} - ${c}</span><b>${t}s</b>`;
+                root.appendChild(row);
+            });
+        }
+
+        function renderQueues() {
+            lanes.forEach((lane) => {
+                const count = Math.max(0, Math.floor(displayCounts[lane] || 0));
+                document.getElementById(`queue${lane}Count`).textContent = String(count);
+                const queue = document.getElementById(`queue${lane}`);
+                queue.innerHTML = '';
+                const dots = Math.min(count, 26);
+                for (let i = 0; i < dots; i += 1) {
+                    const el = document.createElement('span');
+                    el.className = 'vehicle-dot';
+                    queue.appendChild(el);
+                }
+            });
+        }
+
+        function updateBadges(state) {
+            lanes.forEach((lane) => {
+                const current = Math.max(0, Math.round(displayCounts[lane] || 0));
+                const predicted = Number(state.predicted_densities?.[lane] || 0);
+                const delta = Math.round(predicted - current);
+                const sign = delta >= 0 ? '+' : '';
+                const text = `${current} (${sign}${delta})`;
+                document.getElementById(`badge${lane}`).textContent = text;
+            });
+        }
+
+        function updateStats(state) {
+            const stats = state.stats || {};
+            document.getElementById('statPassed').textContent = String(stats.vehicles_passed ?? 0);
+            document.getElementById('statWait').textContent = `${Number(stats.avg_wait_seconds ?? 0).toFixed(1)}s`;
+            document.getElementById('statThroughput').textContent = `${Number(stats.throughput_per_min ?? 0).toFixed(1)}/min`;
+        }
+
+        function renderModelCards(state) {
+            const m = state.model_outputs || {};
+            const d = m.detection || {};
+            const e = m.emergency || {};
+            const p = m.prediction || {};
+            const r = m.rl || {};
+
+            document.getElementById('cardDetection').innerHTML = `
+                <div>Status: <b>${d.status || '-'}</b> (${d.model || 'YOLOv8'})</div>
+                <div>N:${state.vehicle_counts?.N ?? 0} S:${state.vehicle_counts?.S ?? 0} E:${state.vehicle_counts?.E ?? 0} W:${state.vehicle_counts?.W ?? 0}</div>
+            `;
+
+            document.getElementById('cardEmergency').innerHTML = `
+                <div>Status: <b>${e.status || '-'}</b> (${e.model || 'YOLOv8-cls'})</div>
+                <div>Lane: <b>${e.lane || 'None'}</b></div>
+            `;
+
+            document.getElementById('cardPrediction').innerHTML = `
+                <div>Model: <b>${p.model || 'XGBoost'}</b> | Horizon: ${p.horizon_seconds || 60}s | Confidence: ${Math.round(Number(p.confidence || state.confidence || 0) * 100)}%</div>
+                <div>N ${state.vehicle_counts?.N ?? 0} → ${(state.predicted_densities?.N ?? 0).toFixed?.(1) ?? state.predicted_densities?.N ?? 0}</div>
+                <div>S ${state.vehicle_counts?.S ?? 0} → ${(state.predicted_densities?.S ?? 0).toFixed?.(1) ?? state.predicted_densities?.S ?? 0}</div>
+                <div>E ${state.vehicle_counts?.E ?? 0} → ${(state.predicted_densities?.E ?? 0).toFixed?.(1) ?? state.predicted_densities?.E ?? 0}</div>
+                <div>W ${state.vehicle_counts?.W ?? 0} → ${(state.predicted_densities?.W ?? 0).toFixed?.(1) ?? state.predicted_densities?.W ?? 0}</div>
+            `;
+
+            document.getElementById('cardRL').innerHTML = `
+                <div>Model: <b>${r.model || 'DQN'}</b> (${r.model_loaded ? 'Loaded' : 'Fallback'})</div>
+                <div>Decision: <b>${r.decision_seconds || state.green_duration || 0}s</b></div>
+                <div>Current: ${r.current_phase || state.phase_label || '-'}</div>
+                <div>Next: ${r.next_phase || '-'}</div>
+                <div>Reason: ${r.reason || '-'}</div>
+            `;
+
+            const thumbs = state.lane_images || {};
+            const row = document.getElementById('thumbsRow');
+            row.innerHTML = '';
+            lanes.forEach((lane) => {
+                if (thumbs[lane]) {
+                    const wrap = document.createElement('div');
+                    wrap.innerHTML = `<div>${lane} annotated</div><img class="lane-preview" alt="${lane}" src="${thumbs[lane]}" />`;
+                    row.appendChild(wrap);
+                }
+            });
+        }
+
+        function renderState(state) {
+            lanes.forEach((lane) => setLight(lane, state.signal_states?.[lane] || 'RED'));
+            document.getElementById('phaseLabel').textContent = state.phase_label || 'Unknown';
+            document.getElementById('cycleBadge').textContent = `Cycle ${state.cycle || 1} • Step ${state.steps_completed || 1}/4`;
+            updateBadges(state);
+            renderQueues();
+            updateDensityPanel(state);
+            updateCountdownPanel(state);
+            updateStats(state);
+            renderModelCards(state);
+            if (state.emergency_detected) {
+                setStatus(`Emergency: ${state.emergency_lane}`, 'emergency');
+            } else if (isRunning) {
+                setStatus('Running', 'running');
+            }
+        }
+
+        function applyGradualDrainTick() {
+            if (!simulationState || !isRunning) return;
+            const lane = ['N', 'S', 'E', 'W'][simulationState.phase || 0];
+            if (remaining > 0 && Math.round(remaining) % 5 === 0 && displayCounts[lane] > 0) {
+                displayCounts[lane] = Math.max(0, displayCounts[lane] - 1);
+                updateBadges(simulationState);
+                renderQueues();
+            }
+        }
+
+        async function fetchNextCycle() {
+            const res = await fetch('/simulation/next_cycle', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'next_cycle failed');
+            simulationState = { ...simulationState, ...data };
+            displayCounts = { ...simulationState.vehicle_counts };
+            renderState(simulationState);
+
+            if (simulationState.single_cycle_complete) {
+                stopSimulation(false);
+                setStatus('Completed (single cycle)', '');
+                return;
+            }
+            startCountdown(simulationState.green_duration || 20);
+        }
+
+        function startCountdown(duration) {
+            clearInterval(countdownTimer);
+            remaining = Number(duration || 0);
+            document.getElementById('timerValue').textContent = `${Math.max(0, Math.round(remaining))}s`;
+            updateCountdownPanel(simulationState);
+
+            countdownTimer = setInterval(async () => {
+                if (!isRunning) return;
+                remaining -= speed;
+                document.getElementById('timerValue').textContent = `${Math.max(0, Math.round(remaining))}s`;
+
+                if (remaining <= 3 && remaining > 0) {
+                    const lane = ['N', 'S', 'E', 'W'][simulationState.phase || 0];
+                    setLight(lane, 'YELLOW');
+                }
+
+                applyGradualDrainTick();
+                updateCountdownPanel(simulationState);
+
+                if (remaining <= 0) {
+                    clearInterval(countdownTimer);
+                    try {
+                        await fetchNextCycle();
+                    } catch (err) {
+                        stopSimulation(false);
+                        setStatus('Error');
+                        alert(err.message);
+                    }
+                }
+            }, 1000);
+        }
+
+        function startSimulation(data) {
+            simulationState = data;
+            displayCounts = { ...simulationState.vehicle_counts };
+            isRunning = true;
+            setStatus('Running', 'running');
+            renderState(simulationState);
+            startCountdown(simulationState.green_duration || 20);
+        }
+
+        function stopSimulation(callServer = false) {
+            isRunning = false;
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+            if (!simulationState || !simulationState.single_cycle_complete) {
+                setStatus('Stopped');
+            }
+            if (callServer) {
+                fetch('/simulation/reset', { method: 'POST' }).catch(() => {});
+            }
+        }
+
+        document.querySelectorAll('[data-speed]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                speed = Number(btn.getAttribute('data-speed')) || 1;
+                document.querySelectorAll('[data-speed]').forEach((b) => b.classList.remove('btn-info'));
+                btn.classList.add('btn-info');
+            });
+        });
+
+        document.getElementById('modeUploadBtn').addEventListener('click', () => {
+            document.getElementById('modeUploadBtn').classList.add('btn-info');
+            document.getElementById('modeManualBtn').classList.remove('btn-info');
+        });
+
+        document.getElementById('modeManualBtn').addEventListener('click', () => {
+            document.getElementById('modeManualBtn').classList.add('btn-info');
+            document.getElementById('modeUploadBtn').classList.remove('btn-info');
+        });
+
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            formData.append('input_mode', 'upload');
+            try {
+                const res = await fetch('/simulation', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Upload simulation failed');
+                startSimulation(data);
+            } catch (err) {
+                alert(err.message);
+            }
+        });
+
+        document.getElementById('manualForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData();
+            formData.append('input_mode', 'manual');
+            formData.append('countN', document.getElementById('countNInput').value || '0');
+            formData.append('countS', document.getElementById('countSInput').value || '0');
+            formData.append('countE', document.getElementById('countEInput').value || '0');
+            formData.append('countW', document.getElementById('countWInput').value || '0');
+            try {
+                const res = await fetch('/simulation', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Manual simulation failed');
+                startSimulation(data);
+            } catch (err) {
+                alert(err.message);
+            }
+        });
+
+        document.querySelectorAll('[data-amb]').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const lane = btn.getAttribute('data-amb');
+                try {
+                    const res = await fetch('/simulation/ambulance', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lane })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'Ambulance update failed');
+                    if (simulationState) {
+                        simulationState.emergency_detected = data.emergency_detected;
+                        simulationState.emergency_lane = data.emergency_lane;
+                        simulationState.emergency_class = data.emergency_class;
+                        renderState(simulationState);
+                    }
+                } catch (err) {
+                    alert(err.message);
+                }
+            });
+        });
+
+        document.getElementById('stopBtn').addEventListener('click', () => stopSimulation(false));
+
+        document.getElementById('resetBtn').addEventListener('click', async () => {
+            stopSimulation(true);
+            simulationState = null;
+            displayCounts = { N: 0, S: 0, E: 0, W: 0 };
+            lanes.forEach((lane) => setLight(lane, 'RED'));
+            ['N', 'S', 'E', 'W'].forEach((lane) => {
+                document.getElementById(`badge${lane}`).textContent = '0 (+0)';
+            });
+            renderQueues();
+            document.getElementById('phaseLabel').textContent = 'Awaiting start';
+            document.getElementById('timerValue').textContent = '--s';
+            document.getElementById('cycleBadge').textContent = 'Cycle 0 • Step 0/4';
+            document.getElementById('densityPanel').innerHTML = '';
+            document.getElementById('countdownPanel').innerHTML = '';
+            document.getElementById('cardDetection').innerHTML = '';
+            document.getElementById('cardEmergency').innerHTML = '';
+            document.getElementById('cardPrediction').innerHTML = '';
+            document.getElementById('cardRL').innerHTML = '';
+            document.getElementById('thumbsRow').innerHTML = '';
+            updateStats({ stats: { vehicles_passed: 0, avg_wait_seconds: 0, throughput_per_min: 0 } });
+            setStatus('Idle');
+        });
+
+        renderQueues();
+        lanes.forEach((lane) => setLight(lane, 'RED'));
+    </script>
+</body>
+
+</html>
