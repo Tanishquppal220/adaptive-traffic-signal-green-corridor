@@ -38,32 +38,39 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from  environment   import (
-    TrafficEnv, decode_action, encode_action,
-    MIN_GREEN, MAX_GREEN, N_DURATIONS, ACTION_SIZE,
+from training.DQN.environment import (  # noqa: E402
+    TrafficEnv,
+    encode_action,
+    MIN_GREEN,
+    MAX_GREEN,
+    ACTION_SIZE,
 )
-from  dqn_agent     import DQNAgent
-from  replay_buffer import ReplayBuffer
+from training.DQN.dqn_agent import DQNAgent  # noqa: E402
+from training.DQN.replay_buffer import ReplayBuffer  # noqa: E402
 
 try:
     import config as cfg
-    CYCLE_TIMEOUT    = cfg.CYCLE_TIMEOUT
+    CYCLE_TIMEOUT = cfg.CYCLE_TIMEOUT
     DQN_WEIGHTS_PATH = cfg.DQN_WEIGHTS_PATH
-    LEARNING_RATE    = cfg.LEARNING_RATE
-    GAMMA            = cfg.GAMMA
-    BATCH_SIZE       = cfg.BATCH_SIZE
+    GAMMA = cfg.GAMMA
+    BATCH_SIZE = cfg.DQN_ONLINE_BATCH_SIZE
+    ONLINE_LR = cfg.DQN_ONLINE_LEARNING_RATE
+    ONLINE_BUFFER_SIZE = cfg.DQN_ONLINE_BUFFER_SIZE
+    ONLINE_SAVE_EVERY = cfg.DQN_ONLINE_SAVE_EVERY
+    LANE_KEYS = cfg.LANE_KEYS
+    DIR_LABELS = cfg.DIRECTIONS
 except (ImportError, AttributeError):
-    CYCLE_TIMEOUT    = 120
+    CYCLE_TIMEOUT = 120
     DQN_WEIGHTS_PATH = ROOT / "models" / "dqn_signal_optimizer.pt"
-    LEARNING_RATE    = 1e-4    # conservative online fine-tuning rate
-    GAMMA            = 0.95
-    BATCH_SIZE       = 32
+    GAMMA = 0.95
+    BATCH_SIZE = 32
+    ONLINE_LR = 1e-4
+    ONLINE_BUFFER_SIZE = 5_000
+    ONLINE_SAVE_EVERY = 100
+    LANE_KEYS = ("laneN", "laneS", "laneE", "laneW")
+    DIR_LABELS = ("N", "S", "E", "W")
 
 logger = logging.getLogger(__name__)
-
-LANE_KEYS  = ("laneN", "laneS", "laneE", "laneW")
-DIR_LABELS = ("N", "S", "E", "W")
-ONLINE_SAVE_EVERY = 100   # persist updated weights every N real cycles
 
 
 class SignalController:
@@ -82,23 +89,23 @@ class SignalController:
     def __init__(
         self,
         weights_path: str | Path = DQN_WEIGHTS_PATH,
-        device:       str        = "cpu",
-        online_lr:    float      = 1e-4,
+        device:       str = "cpu",
+        online_lr:    float = ONLINE_LR,
     ) -> None:
         self._weights_path = Path(weights_path)
-        self._cycle_count  = 0
-        self._use_dqn      = False
+        self._cycle_count = 0
+        self._use_dqn = False
 
-        self._env   = TrafficEnv()   # used only for state normalisation
+        self._env = TrafficEnv()   # used only for state normalisation
         self._agent = DQNAgent(
-            state_size  = self._env.state_size,
-            action_size = ACTION_SIZE,
-            lr          = online_lr,
-            gamma       = GAMMA,
-            batch_size  = BATCH_SIZE,
-            device      = device,
+            state_size=self._env.state_size,
+            action_size=ACTION_SIZE,
+            lr=online_lr,
+            gamma=GAMMA,
+            batch_size=BATCH_SIZE,
+            device=device,
         )
-        self._buffer = ReplayBuffer(capacity=5_000)
+        self._buffer = ReplayBuffer(capacity=ONLINE_BUFFER_SIZE)
 
         self._load_weights()
 
@@ -190,7 +197,7 @@ class SignalController:
         -------
         (action, direction, duration)
         """
-        state  = self._make_state(counts)
+        state = self._make_state(counts)
         action, direction, duration = self._agent.select_action_decoded(
             state, epsilon=0.0
         )
@@ -206,13 +213,13 @@ class SignalController:
         Duration = (busiest_count / total_count) × CYCLE_TIMEOUT,
                    clamped to [MIN_GREEN, MAX_GREEN].
         """
-        total     = float(counts.sum())
+        total = float(counts.sum())
         direction = int(np.argmax(counts))
 
         if total == 0:
             duration = MIN_GREEN
         else:
-            raw      = (counts[direction] / total) * CYCLE_TIMEOUT
+            raw = (counts[direction] / total) * CYCLE_TIMEOUT
             duration = int(np.clip(round(raw), MIN_GREEN, MAX_GREEN))
 
         action = encode_action(direction, duration)

@@ -28,8 +28,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from  replay_buffer import ReplayBuffer
-from  environment   import ACTION_SIZE, decode_action, encode_action
+try:
+    from .replay_buffer import ReplayBuffer
+    from .environment import ACTION_SIZE, decode_action
+except ImportError:
+    from replay_buffer import ReplayBuffer
+    from environment import ACTION_SIZE, decode_action
 
 
 # ── Q-network ──────────────────────────────────────────────────────────────────
@@ -78,18 +82,18 @@ class DQNAgent:
 
     def __init__(
         self,
-        state_size:  int   = 6,
-        action_size: int   = ACTION_SIZE,
+        state_size:  int = 6,
+        action_size: int = ACTION_SIZE,
         lr:          float = 1e-3,
         gamma:       float = 0.95,
-        batch_size:  int   = 64,
-        device:      str   = "cpu",
+        batch_size:  int = 64,
+        device:      str = "cpu",
     ) -> None:
-        self.state_size  = state_size
+        self.state_size = state_size
         self.action_size = action_size
-        self.gamma       = gamma
-        self.batch_size  = batch_size
-        self.device      = torch.device(device)
+        self.gamma = gamma
+        self.batch_size = batch_size
+        self.device = torch.device(device)
 
         # online network (trained at every step)
         self.online = QNetwork(state_size, action_size).to(self.device)
@@ -99,7 +103,7 @@ class DQNAgent:
         self.target.eval()
 
         self.optimizer = optim.Adam(self.online.parameters(), lr=lr)
-        self.loss_fn   = nn.SmoothL1Loss()   # Huber loss — stable for RL
+        self.loss_fn = nn.SmoothL1Loss()   # Huber loss — stable for RL
 
         self._train_steps = 0
 
@@ -142,7 +146,7 @@ class DQNAgent:
         direction : int  in {0,1,2,3}  – which lane gets green
         duration  : int  in {5…60}     – green time in whole seconds
         """
-        action    = self.select_action(state, epsilon)
+        action = self.select_action(state, epsilon)
         direction, duration = decode_action(action)
         return action, direction, duration
 
@@ -159,13 +163,14 @@ class DQNAgent:
         if not buffer.is_ready(self.batch_size):
             return 0.0
 
-        states, actions, rewards, next_states, dones = buffer.sample(self.batch_size)
+        states, actions, rewards, next_states, dones = buffer.sample(
+            self.batch_size)
 
-        s  = torch.FloatTensor(states).to(self.device)           # (B, 6)
-        a  = torch.LongTensor(actions).unsqueeze(1).to(self.device)   # (B, 1)
-        r  = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)  # (B, 1)
+        s = torch.FloatTensor(states).to(self.device)           # (B, 6)
+        a = torch.LongTensor(actions).unsqueeze(1).to(self.device)   # (B, 1)
+        r = torch.FloatTensor(rewards).unsqueeze(1).to(self.device)  # (B, 1)
         ns = torch.FloatTensor(next_states).to(self.device)      # (B, 6)
-        d  = torch.FloatTensor(dones).unsqueeze(1).to(self.device)    # (B, 1)
+        d = torch.FloatTensor(dones).unsqueeze(1).to(self.device)    # (B, 1)
 
         # Q(s, a)  — current estimate for the taken action
         current_q = self.online(s).gather(1, a)                  # (B, 1)
@@ -173,7 +178,7 @@ class DQNAgent:
         # r + γ · max_a' Q_target(s', a')   [zeroed if terminal]
         with torch.no_grad():
             max_next_q = self.target(ns).max(dim=1, keepdim=True).values
-            target_q   = r + self.gamma * max_next_q * (1.0 - d)
+            target_q = r + self.gamma * max_next_q * (1.0 - d)
 
         loss = self.loss_fn(current_q, target_q)
 
@@ -209,8 +214,8 @@ class DQNAgent:
             q_vals = self.online(state_t).squeeze(0).cpu().numpy()   # (224,)
 
         top_indices = np.argsort(q_vals)[::-1][:top_k]
-        directions  = ("N", "S", "E", "W")
-        results     = []
+        directions = ("N", "S", "E", "W")
+        results = []
         for idx in top_indices:
             d, dur = decode_action(int(idx))
             results.append({

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Adaptive Traffic Signal Demos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <main class="page-shell">
+        <header class="hero">
+            <p class="eyebrow">Adaptive Traffic Signal Green Corridor</p>
+            <h1>Demo Selector</h1>
+            <p class="subtitle">Choose which demo to present: real upload pipeline or synthetic congestion + ambulance
+                corridor.</p>
+        </header>
+
+        <section class="panel">
+            <div class="model-grid">
+                <article class="model-card">
+                    <h4>Upload Pipeline Demo</h4>
+                    <p>Show YOLO-like input flow to final DQN decision and top-down simulation.</p>
+                    <p><a class="demo-link" href="{{ url_for('gui.upload_demo') }}">Open Upload Demo</a></p>
+                </article>
+                <article class="model-card">
+                    <h4>Synthetic Congestion Demo</h4>
+                    <p>Generate rush-hour traffic and spawn ambulance to demonstrate green corridor preemption.</p>
+                    <p><a class="demo-link" href="{{ url_for('gui.synthetic_demo') }}">Open Synthetic Demo</a></p>
+                </article>
+            </div>
+        </section>
+    </main>
+</body>
+
+</html>

@@ -34,40 +34,45 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from  environment    import TrafficEnv, ACTION_SIZE, decode_action
-from  replay_buffer  import ReplayBuffer
-from  dqn_agent      import DQNAgent
+try:
+    from .environment import TrafficEnv, ACTION_SIZE, decode_action
+    from .replay_buffer import ReplayBuffer
+    from .dqn_agent import DQNAgent
+except ImportError:
+    from environment import TrafficEnv, ACTION_SIZE, decode_action
+    from replay_buffer import ReplayBuffer
+    from dqn_agent import DQNAgent
 
 # ── config (with safe fallback if config.py isn't available) ──────────────────
 try:
     import config as cfg
-    GAMMA              = cfg.GAMMA
-    LEARNING_RATE      = cfg.LEARNING_RATE
-    EPSILON_START      = cfg.EPSILON_START
-    EPSILON_END        = cfg.EPSILON_END
-    EPSILON_DECAY      = cfg.EPSILON_DECAY
-    REPLAY_BUFFER_SIZE = cfg.REPLAY_BUFFER_SIZE
-    BATCH_SIZE         = cfg.BATCH_SIZE
+    GAMMA = cfg.GAMMA
+    LEARNING_RATE = cfg.DQN_TRAINING_LEARNING_RATE
+    EPSILON_START = cfg.EPSILON_START
+    EPSILON_END = cfg.EPSILON_END
+    EPSILON_DECAY = cfg.EPSILON_DECAY
+    REPLAY_BUFFER_SIZE = cfg.DQN_TRAINING_BUFFER_SIZE
+    BATCH_SIZE = cfg.DQN_TRAINING_BATCH_SIZE
     TARGET_UPDATE_FREQ = cfg.TARGET_UPDATE_FREQ
-    DQN_WEIGHTS_PATH   = cfg.DQN_WEIGHTS_PATH
+    DQN_WEIGHTS_PATH = cfg.DQN_WEIGHTS_PATH
 except (ImportError, AttributeError):
-    GAMMA              = 0.95
-    LEARNING_RATE      = 1e-3
-    EPSILON_START      = 1.0
-    EPSILON_END        = 0.05
-    EPSILON_DECAY      = 0.9995
+    GAMMA = 0.95
+    LEARNING_RATE = 1e-3
+    EPSILON_START = 1.0
+    EPSILON_END = 0.05
+    EPSILON_DECAY = 0.9995
     REPLAY_BUFFER_SIZE = 50_000
-    BATCH_SIZE         = 64
+    BATCH_SIZE = 64
     TARGET_UPDATE_FREQ = 500
-    DQN_WEIGHTS_PATH   = ROOT / "models" / "dqn_signal_optimizer.pt"
+    DQN_WEIGHTS_PATH = ROOT / "models" / "dqn_signal_optimizer.pt"
 
 
 # ── training loop ──────────────────────────────────────────────────────────────
 
 def train(
-    total_steps:   int  = 100_000,
-    device:        str  = "cpu",
-    log_interval:  int  = 1_000,
+    total_steps:   int = 100_000,
+    device:        str = "cpu",
+    log_interval:  int = 1_000,
     save_path:     Path = DQN_WEIGHTS_PATH,
     peak_hour:     bool = False,
 ) -> None:
@@ -84,25 +89,25 @@ def train(
     print(f"  save_path    → {save_path}")
     print(f"{'─'*65}\n")
 
-    env    = TrafficEnv(peak_hour=peak_hour, seed=42)
+    env = TrafficEnv(peak_hour=peak_hour, seed=42)
     buffer = ReplayBuffer(capacity=REPLAY_BUFFER_SIZE)
-    agent  = DQNAgent(
-        state_size  = env.state_size,
-        action_size = env.action_size,   # 224
-        lr          = LEARNING_RATE,
-        gamma       = GAMMA,
-        batch_size  = BATCH_SIZE,
-        device      = device,
+    agent = DQNAgent(
+        state_size=env.state_size,
+        action_size=env.action_size,   # 224
+        lr=LEARNING_RATE,
+        gamma=GAMMA,
+        batch_size=BATCH_SIZE,
+        device=device,
     )
 
-    epsilon        = EPSILON_START
-    state          = env.reset()
+    epsilon = EPSILON_START
+    state = env.reset()
     episode_reward = 0.0
-    episode_count  = 0
+    episode_count = 0
 
     reward_window: list[float] = []
     loss_window:   list[float] = []
-    best_avg_reward             = float("-inf")
+    best_avg_reward = float("-inf")
 
     t0 = time.time()
 
@@ -115,7 +120,7 @@ def train(
         next_state, reward, done, info = env.step(action)
         buffer.push(state, action, reward, next_state, done)
 
-        state          = next_state
+        state = next_state
         episode_reward += reward
 
         # ── learn ─────────────────────────────────────────────────────────────
@@ -133,20 +138,20 @@ def train(
         # ── episode boundary ───────────────────────────────────────────────────
         if done:
             reward_window.append(episode_reward)
-            episode_count  += 1
-            episode_reward  = 0.0
-            state           = env.reset()
+            episode_count += 1
+            episode_reward = 0.0
+            state = env.reset()
 
         # ── logging ────────────────────────────────────────────────────────────
         if step % log_interval == 0:
-            avg_r   = np.mean(reward_window[-50:]) if reward_window else 0.0
-            avg_l   = np.mean(loss_window[-200:])  if loss_window  else 0.0
+            avg_r = np.mean(reward_window[-50:]) if reward_window else 0.0
+            avg_l = np.mean(loss_window[-200:]) if loss_window else 0.0
             elapsed = time.time() - t0
-            sps     = step / elapsed
+            sps = step / elapsed
 
             # decode the last action for human-readable display
             d, dur = decode_action(action)
-            dirs   = ("N", "S", "E", "W")
+            dirs = ("N", "S", "E", "W")
 
             print(
                 f"  step {step:>7,} | ε={epsilon:.4f} | "
@@ -159,7 +164,8 @@ def train(
             if avg_r > best_avg_reward and len(reward_window) >= 10:
                 best_avg_reward = avg_r
                 agent.save(save_path)
-                print(f"    ✓ new best  avg_reward={avg_r:+.3f}  → {save_path.name}")
+                print(
+                    f"    ✓ new best  avg_reward={avg_r:+.3f}  → {save_path.name}")
 
     # ── final save ─────────────────────────────────────────────────────────────
     final_path = save_path.parent / "dqn_signal_optimizer_final.pt"
@@ -198,9 +204,9 @@ def _parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = _parse_args()
     train(
-        total_steps  = args.steps,
-        device       = args.device,
-        log_interval = args.log_interval,
-        save_path    = args.save_path,
-        peak_hour    = args.peak_hour,
+        total_steps=args.steps,
+        device=args.device,
+        log_interval=args.log_interval,
+        save_path=args.save_path,
+        peak_hour=args.peak_hour,
     )

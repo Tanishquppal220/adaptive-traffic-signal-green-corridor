@@ -22,17 +22,27 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[0]
+ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from  environment   import (
-    MIN_GREEN, MAX_GREEN, decode_action, encode_action, ACTION_SIZE
+from training.DQN.environment import (  # noqa: E402
+    MIN_GREEN,
+    MAX_GREEN,
+    decode_action,
+    encode_action,
+    ACTION_SIZE,
 )
-from  signal_controller import SignalController
+from control.signal_controller import SignalController  # noqa: E402
 
-LANE_KEYS  = ("laneN", "laneS", "laneE", "laneW")
-DIR_LABELS = ("N", "S", "E", "W")
+try:
+    import config as cfg
+
+    LANE_KEYS = cfg.LANE_KEYS
+    DIR_LABELS = cfg.DIRECTIONS
+except (ImportError, AttributeError):
+    LANE_KEYS = ("laneN", "laneS", "laneE", "laneW")
+    DIR_LABELS = ("N", "S", "E", "W")
 
 
 # ── validation helper ──────────────────────────────────────────────────────────
@@ -115,16 +125,26 @@ def run_tests(weights_path: Path | None = None) -> None:
     print(f"  Status : {sc.status()}\n")
 
     test_cases = [
-        ("Heavy North",    {"laneN": 15, "laneS": 2,  "laneE": 3,  "laneW": 1}),
-        ("Heavy South",    {"laneN": 1,  "laneS": 18, "laneE": 2,  "laneW": 0}),
-        ("Heavy East",     {"laneN": 3,  "laneS": 2,  "laneE": 20, "laneW": 4}),
-        ("Heavy West",     {"laneN": 2,  "laneS": 1,  "laneE": 3,  "laneW": 14}),
-        ("Uniform load",   {"laneN": 5,  "laneS": 5,  "laneE": 5,  "laneW": 5}),
-        ("Empty",          {"laneN": 0,  "laneS": 0,  "laneE": 0,  "laneW": 0}),
-        ("Max load",       {"laneN": 30, "laneS": 30, "laneE": 30, "laneW": 30}),
-        ("API example",    {"laneN": 8,  "laneS": 2,  "laneE": 5,  "laneW": 1}),
-        ("Near-equal N/S", {"laneN": 10, "laneS": 9,  "laneE": 1,  "laneW": 1}),
-        ("Single lane",    {"laneN": 20, "laneS": 0,  "laneE": 0,  "laneW": 0}),
+        ("Heavy North",    {"laneN": 15,
+         "laneS": 2,  "laneE": 3,  "laneW": 1}),
+        ("Heavy South",    {"laneN": 1,
+         "laneS": 18, "laneE": 2,  "laneW": 0}),
+        ("Heavy East",     {"laneN": 3,
+         "laneS": 2,  "laneE": 20, "laneW": 4}),
+        ("Heavy West",     {"laneN": 2,
+         "laneS": 1,  "laneE": 3,  "laneW": 14}),
+        ("Uniform load",   {"laneN": 5,
+         "laneS": 5,  "laneE": 5,  "laneW": 5}),
+        ("Empty",          {"laneN": 0,
+         "laneS": 0,  "laneE": 0,  "laneW": 0}),
+        ("Max load",       {"laneN": 30,
+         "laneS": 30, "laneE": 30, "laneW": 30}),
+        ("API example",    {"laneN": 8,
+         "laneS": 2,  "laneE": 5,  "laneW": 1}),
+        ("Near-equal N/S", {"laneN": 10,
+         "laneS": 9,  "laneE": 1,  "laneW": 1}),
+        ("Single lane",    {"laneN": 20,
+         "laneS": 0,  "laneE": 0,  "laneW": 0}),
     ]
 
     passed = 0
@@ -158,14 +178,14 @@ def run_tests(weights_path: Path | None = None) -> None:
     # ── duration range verification ────────────────────────────────────────────
     print(f"\n  Checking duration range across 50 random inputs …")
     import numpy as np
-    rng      = np.random.default_rng(0)
+    rng = np.random.default_rng(0)
     range_ok = True
     for _ in range(50):
         rand_counts = {
             k: int(rng.integers(0, 21)) for k in LANE_KEYS
         }
         result = sc.decide(rand_counts)
-        dur    = result.get("duration", -1)
+        dur = result.get("duration", -1)
         if not (MIN_GREEN <= dur <= MAX_GREEN):
             print(f"  ❌  duration {dur} out of range for {rand_counts}")
             range_ok = False
@@ -190,9 +210,11 @@ def run_tests(weights_path: Path | None = None) -> None:
 
     # ── proportional fallback ──────────────────────────────────────────────────
     print(f"\n  Testing proportional fallback (no weights file) …")
-    sc_fb  = SignalController(weights_path=ROOT / "models" / "__no_weights__.pt")
+    sc_fb = SignalController(
+        weights_path=ROOT / "models" / "__no_weights__.pt")
     result = sc_fb.decide({"laneN": 8, "laneS": 2, "laneE": 5, "laneW": 1})
-    errors = _validate(result, {"laneN": 8, "laneS": 2, "laneE": 5, "laneW": 1})
+    errors = _validate(
+        result, {"laneN": 8, "laneS": 2, "laneE": 5, "laneW": 1})
     if errors or sc_fb.mode != "proportional":
         print(f"  ❌  Proportional fallback failed: {errors or 'wrong mode'}")
         failed += 1
