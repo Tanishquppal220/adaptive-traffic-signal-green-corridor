@@ -37,3 +37,27 @@ FLASK_DEBUG: bool = True
 # ── RL Signal Control ────────────────────────────────────────────────────────
 # Green duration options (seconds) for the RL agent's action space
 GREEN_DURATIONS: list[int] = [10, 20, 30, 40, 50, 60]
+
+# ── Directories (add if not already present) ──────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent
+MODELS_DIR = BASE_DIR / "models"
+MODELS_DIR.mkdir(exist_ok=True)
+
+# ── Signal Timing ─────────────────────────────────────────────────────────────
+MIN_GREEN = 5    # seconds – shortest permissible green phase
+MAX_GREEN = 60   # seconds – longest permissible green phase
+YELLOW_DURATION = 3    # seconds – fixed yellow/clearance phase
+CYCLE_TIMEOUT = 120  # seconds – max total cycle before forced rotation
+
+# ── DQN Hyperparameters ───────────────────────────────────────────────────────
+LEARNING_RATE = 1e-3
+GAMMA = 0.95       # discount factor
+EPSILON_START = 1.0        # full exploration at the start
+EPSILON_END = 0.05       # minimum exploration floor
+EPSILON_DECAY = 0.9995     # multiplicative decay per step
+REPLAY_BUFFER_SIZE = 50_000
+BATCH_SIZE = 64
+TARGET_UPDATE_FREQ = 500        # steps between hard target-network sync
+
+# ── Model Persistence ─────────────────────────────────────────────────────────
+DQN_WEIGHTS_PATH = MODELS_DIR / "dqn_signal_optimizer.pt"
