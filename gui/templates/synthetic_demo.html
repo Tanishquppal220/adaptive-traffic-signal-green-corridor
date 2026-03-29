@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Synthetic Congestion Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <main class="page-shell">
+        <header class="hero">
+            <p class="eyebrow">Adaptive Traffic Signal Green Corridor</p>
+            <h1>Synthetic Congestion + Ambulance Demo</h1>
+            <p class="subtitle">Generate rush-hour traffic, observe DQN adaptation, and spawn ambulance to trigger green
+                corridor preemption.</p>
+            <p><a class="demo-link" href="{{ url_for('gui.index') }}">Back to Demo Selector</a> · <a class="demo-link"
+                    href="{{ url_for('gui.upload_demo') }}">Go to Upload Demo</a></p>
+        </header>
+
+        <section class="panel upload-panel">
+            <h2>Scenario Controls</h2>
+            <form id="syntheticForm" class="upload-grid">
+                <label class="upload-card">
+                    <span>Time of Day</span>
+                    <select id="timeOfDay">
+                        <option value="morning_peak">Morning Peak</option>
+                        <option value="mid_day" selected>Mid Day</option>
+                        <option value="evening_peak">Evening Peak</option>
+                        <option value="night">Night</option>
+                    </select>
+                </label>
+                <label class="upload-card">
+                    <span>Intensity</span>
+                    <input id="intensity" type="range" min="0.4" max="2.5" step="0.1" value="1.0">
+                    <small id="intensityValue">1.0x</small>
+                </label>
+                <label class="upload-card">
+                    <span>Seed</span>
+                    <input id="seed" type="number" value="42" min="1">
+                </label>
+                <label class="upload-card">
+                    <span>Ambulance Lane</span>
+                    <select id="ambulanceLane">
+                        <option value="auto" selected>Auto (Busiest Lane)</option>
+                        <option value="laneN">North</option>
+                        <option value="laneS">South</option>
+                        <option value="laneE">East</option>
+                        <option value="laneW">West</option>
+                    </select>
+                </label>
+                <label class="upload-card">
+                    <span>Fairness Mode</span>
+                    <select id="fairnessMode">
+                        <option value="soft" selected>Soft (DQN first)</option>
+                        <option value="hard">Hard (anti-starvation priority)</option>
+                        <option value="off">Off</option>
+                    </select>
+                </label>
+                <label class="upload-card">
+                    <span>Continuous Flow</span>
+                    <select id="autoMode">
+                        <option value="off" selected>Manual Step</option>
+                        <option value="on">Auto every 3s</option>
+                    </select>
+                </label>
+                <div class="actions">
+                    <button id="stepBtn" type="submit">Generate Next Traffic Cycle</button>
+                    <button id="autoBtn" type="button" class="ghost">Start Auto Flow</button>
+                    <button id="spawnBtn" type="button">Spawn Ambulance</button>
+                    <button id="resetBtn" type="button" class="ghost">Reset</button>
+                </div>
+            </form>
+            <p id="formMessage" class="message" aria-live="polite"></p>
+        </section>
+
+        <section class="panel result-panel">
+            <h2>Congestion Impact</h2>
+            <div class="decision-grid">
+                <div><strong>Total Queue</strong><span id="metricTotalQueue">-</span></div>
+                <div><strong>Baseline Clearance</strong><span id="metricBaseline">-</span></div>
+                <div><strong>DQN Clearance</strong><span id="metricDqn">-</span></div>
+                <div><strong>Improvement</strong><span id="metricImprovement">-</span></div>
+            </div>
+            <h3 class="subsection-title">Cycle Control</h3>
+            <div class="decision-grid">
+                <div><strong>Cycle Locked</strong><span id="cycleLockedValue">-</span></div>
+                <div><strong>Cycle Remaining</strong><span id="cycleRemainingValue">-</span></div>
+                <div><strong>Control Source</strong><span id="controlSourceValue">-</span></div>
+                <div><strong>DQN Ran This Tick</strong><span id="dqnReranValue">-</span></div>
+            </div>
+            <h3 class="subsection-title">Fairness Telemetry</h3>
+            <div class="model-grid" id="fairnessTelemetry">
+                <div class="model-card">
+                    <h4>Mode</h4>
+                    <p><strong id="fairnessModeValue">-</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>Applied</h4>
+                    <p><strong id="fairnessAppliedValue">-</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>Reason</h4>
+                    <p><strong id="fairnessReasonValue">-</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>Selected vs Baseline</h4>
+                    <p><strong id="fairnessSelectionValue">-</strong></p>
+                </div>
+            </div>
+            <div class="model-grid" id="laneWaitCards">
+                <div class="model-card">
+                    <h4>North</h4>
+                    <p><strong id="wait-laneN">wait - | missed -</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>South</h4>
+                    <p><strong id="wait-laneS">wait - | missed -</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>East</h4>
+                    <p><strong id="wait-laneE">wait - | missed -</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>West</h4>
+                    <p><strong id="wait-laneW">wait - | missed -</strong></p>
+                </div>
+            </div>
+            <div id="eventLog" class="phase-box">Events will appear here...</div>
+            <div id="emergencyBanner" class="emergency-banner hidden"></div>
+        </section>
+
+        <section class="panel sim-panel">
+            <h2>Top-Down Simulation</h2>
+            <div id="simStatus" class="sim-status">Ready for synthetic traffic generation.</div>
+            <div class="sim-layout">
+                <div class="canvas-wrap">
+                    <canvas id="intersectionCanvas" width="980" height="560"
+                        aria-label="Top-down traffic intersection simulation"></canvas>
+                </div>
+                <aside class="telemetry">
+                    <h3>Live Queue</h3>
+                    <div class="queue-grid">
+                        <div class="queue-item"><span>North</span><strong id="count-laneN">0</strong></div>
+                        <div class="queue-item"><span>South</span><strong id="count-laneS">0</strong></div>
+                        <div class="queue-item"><span>East</span><strong id="count-laneE">0</strong></div>
+                        <div class="queue-item"><span>West</span><strong id="count-laneW">0</strong></div>
+                    </div>
+                    <h3>Signal Phase</h3>
+                    <div class="phase-box">
+                        <p>Active Lane: <strong id="phaseLane">-</strong></p>
+                        <p>Signal: <strong id="phaseSignal">RED</strong></p>
+                        <p>Remaining: <strong id="phaseRemaining">-</strong></p>
+                    </div>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/synthetic.js') }}"></script>
+</body>
+
+</html>
