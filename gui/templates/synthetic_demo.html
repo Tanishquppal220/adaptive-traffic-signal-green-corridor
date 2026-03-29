@@ -55,8 +55,24 @@
                         <option value="laneW">West</option>
                     </select>
                 </label>
+                <label class="upload-card">
+                    <span>Fairness Mode</span>
+                    <select id="fairnessMode">
+                        <option value="soft" selected>Soft (DQN first)</option>
+                        <option value="hard">Hard (anti-starvation priority)</option>
+                        <option value="off">Off</option>
+                    </select>
+                </label>
+                <label class="upload-card">
+                    <span>Continuous Flow</span>
+                    <select id="autoMode">
+                        <option value="off" selected>Manual Step</option>
+                        <option value="on">Auto every 3s</option>
+                    </select>
+                </label>
                 <div class="actions">
                     <button id="stepBtn" type="submit">Generate Next Traffic Cycle</button>
+                    <button id="autoBtn" type="button" class="ghost">Start Auto Flow</button>
                     <button id="spawnBtn" type="button">Spawn Ambulance</button>
                     <button id="resetBtn" type="button" class="ghost">Reset</button>
                 </div>
@@ -71,6 +87,50 @@
                 <div><strong>Baseline Clearance</strong><span id="metricBaseline">-</span></div>
                 <div><strong>DQN Clearance</strong><span id="metricDqn">-</span></div>
                 <div><strong>Improvement</strong><span id="metricImprovement">-</span></div>
+            </div>
+            <h3 class="subsection-title">Cycle Control</h3>
+            <div class="decision-grid">
+                <div><strong>Cycle Locked</strong><span id="cycleLockedValue">-</span></div>
+                <div><strong>Cycle Remaining</strong><span id="cycleRemainingValue">-</span></div>
+                <div><strong>Control Source</strong><span id="controlSourceValue">-</span></div>
+                <div><strong>DQN Ran This Tick</strong><span id="dqnReranValue">-</span></div>
+            </div>
+            <h3 class="subsection-title">Fairness Telemetry</h3>
+            <div class="model-grid" id="fairnessTelemetry">
+                <div class="model-card">
+                    <h4>Mode</h4>
+                    <p><strong id="fairnessModeValue">-</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>Applied</h4>
+                    <p><strong id="fairnessAppliedValue">-</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>Reason</h4>
+                    <p><strong id="fairnessReasonValue">-</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>Selected vs Baseline</h4>
+                    <p><strong id="fairnessSelectionValue">-</strong></p>
+                </div>
+            </div>
+            <div class="model-grid" id="laneWaitCards">
+                <div class="model-card">
+                    <h4>North</h4>
+                    <p><strong id="wait-laneN">wait - | missed -</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>South</h4>
+                    <p><strong id="wait-laneS">wait - | missed -</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>East</h4>
+                    <p><strong id="wait-laneE">wait - | missed -</strong></p>
+                </div>
+                <div class="model-card">
+                    <h4>West</h4>
+                    <p><strong id="wait-laneW">wait - | missed -</strong></p>
+                </div>
             </div>
             <div id="eventLog" class="phase-box">Events will appear here...</div>
             <div id="emergencyBanner" class="emergency-banner hidden"></div>

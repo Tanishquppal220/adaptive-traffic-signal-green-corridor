@@ -65,6 +65,8 @@ const world = {
   laneTimings: {},
   phaseCycles: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
   emergencyLane: null,
+  emergencyActive: false,
+  emergencyCarSpawned: false,
   finished: false,
   seededRand: Math.random,
 };
@@ -145,12 +147,34 @@ function renderModelOutputs(modelOutputs = {}) {
   emergencyDetectedNode.textContent = emergency.detected ? "YES" : "NO";
   emergencyLabelNode.textContent = emergency.label || "-";
   emergencyConfidenceNode.textContent = Number(emergency.confidence || 0).toFixed(2);
-  emergencyDirectionNode.textContent = emergency.direction || "-";
+  emergencyDirectionNode.textContent = emergency.direction || emergency.status || "-";
 
   dqnModeNode.textContent = dqn.mode || "-";
   dqnActionNode.textContent = dqn.action ?? "-";
   dqnDirectionNode.textContent = dqn.direction || "-";
   dqnDurationNode.textContent = dqn.duration ? `${dqn.duration}s` : "-";
+}
+
+function applyEmergencyVisualState(sim) {
+  const emergencyActive = sim.emergency_status === "active" || sim.emergency_detected;
+  world.emergencyActive = emergencyActive;
+  world.emergencyLane = emergencyActive ? sim.selected_lane : null;
+  world.emergencyCarSpawned = false;
+
+  if (sim.emergency_status === "active") {
+    emergencyBanner.classList.remove("hidden");
+    emergencyBanner.textContent = sim.emergency_message || "Emergency corridor active.";
+    return;
+  }
+
+  if (sim.emergency_status === "cleared") {
+    emergencyBanner.classList.remove("hidden");
+    emergencyBanner.textContent = sim.emergency_message || "Emergency corridor cleared.";
+    return;
+  }
+
+  emergencyBanner.classList.add("hidden");
+  emergencyBanner.textContent = "";
 }
 
 function totalCars() {
@@ -399,7 +423,13 @@ function tickPhase(dtMs) {
         );
         world.counts[lane] -= remove;
         for (let i = 0; i < remove; i += 1) {
-          const isEmergency = world.emergencyLane && lane === world.emergencyLane && i === 0;
+          const isEmergency =
+            world.emergencyActive &&
+            lane === world.emergencyLane &&
+            !world.emergencyCarSpawned;
+          if (isEmergency) {
+            world.emergencyCarSpawned = true;
+          }
           spawnMovingCar(lane, isEmergency);
         }
       }
@@ -431,7 +461,19 @@ function tickMovingCars(dtMs) {
   world.movingCars.forEach((car) => {
     car.t += (car.speed * dtMs) / 1000;
   });
+
+  const hadEmergencyCar = world.movingCars.some((car) => car.emergencyCar);
   world.movingCars = world.movingCars.filter((car) => car.t < 1.05);
+  const hasEmergencyCar = world.movingCars.some((car) => car.emergencyCar);
+
+  if (world.emergencyActive && hadEmergencyCar && !hasEmergencyCar) {
+    world.emergencyActive = false;
+    world.emergencyLane = null;
+    if (emergencyBanner.textContent) {
+      emergencyBanner.classList.add("hidden");
+      emergencyBanner.textContent = "";
+    }
+  }
 }
 
 function animationLoop(ts) {
@@ -470,20 +512,12 @@ function startSimulation(payload) {
   world.phaseCycles = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
   world.seededRand = mulberry32(sim.seed || Date.now());
   world.finished = false;
-  world.emergencyLane = sim.emergency_detected ? sim.selected_lane : null;
+  applyEmergencyVisualState(sim);
 
   modeValue.textContent = decision.mode || "-";
   directionValue.textContent = decision.direction || "-";
   durationValue.textContent = `${decision.duration || 0}s`;
   actionValue.textContent = decision.action ?? "-";
-
-  if (sim.emergency_detected) {
-    emergencyBanner.classList.remove("hidden");
-    emergencyBanner.textContent = sim.emergency_message;
-  } else {
-    emergencyBanner.classList.add("hidden");
-    emergencyBanner.textContent = "";
-  }
 
   renderModelOutputs(payload.model_outputs || {});
   renderCounts();
@@ -520,6 +554,8 @@ function resetWorld() {
   world.laneTimings = {};
   world.phaseCycles = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
   world.emergencyLane = null;
+  world.emergencyActive = false;
+  world.emergencyCarSpawned = false;
   world.finished = false;
 
   renderCounts();

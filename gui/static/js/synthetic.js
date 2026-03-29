@@ -8,6 +8,7 @@ const laneLabels = {
 
 const form = document.getElementById("syntheticForm");
 const stepBtn = document.getElementById("stepBtn");
+const autoBtn = document.getElementById("autoBtn");
 const spawnBtn = document.getElementById("spawnBtn");
 const resetBtn = document.getElementById("resetBtn");
 
@@ -16,6 +17,8 @@ const intensityNode = document.getElementById("intensity");
 const intensityValueNode = document.getElementById("intensityValue");
 const seedNode = document.getElementById("seed");
 const ambulanceLaneNode = document.getElementById("ambulanceLane");
+const fairnessModeNode = document.getElementById("fairnessMode");
+const autoModeNode = document.getElementById("autoMode");
 
 const formMessage = document.getElementById("formMessage");
 const simStatus = document.getElementById("simStatus");
@@ -26,6 +29,16 @@ const metricTotalQueueNode = document.getElementById("metricTotalQueue");
 const metricBaselineNode = document.getElementById("metricBaseline");
 const metricDqnNode = document.getElementById("metricDqn");
 const metricImprovementNode = document.getElementById("metricImprovement");
+
+const cycleLockedValueNode = document.getElementById("cycleLockedValue");
+const cycleRemainingValueNode = document.getElementById("cycleRemainingValue");
+const controlSourceValueNode = document.getElementById("controlSourceValue");
+const dqnReranValueNode = document.getElementById("dqnReranValue");
+
+const fairnessModeValueNode = document.getElementById("fairnessModeValue");
+const fairnessAppliedValueNode = document.getElementById("fairnessAppliedValue");
+const fairnessReasonValueNode = document.getElementById("fairnessReasonValue");
+const fairnessSelectionValueNode = document.getElementById("fairnessSelectionValue");
 
 const phaseLaneNode = document.getElementById("phaseLane");
 const phaseSignalNode = document.getElementById("phaseSignal");
@@ -38,6 +51,9 @@ let animationId = 0;
 let runToken = 0;
 let lastTs = 0;
 let syntheticTick = 0;
+let autoFlowTimer = 0;
+let autoFlowRunning = false;
+let autoTickBusy = false;
 
 const world = {
   counts: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
@@ -54,6 +70,10 @@ const world = {
   yellowMs: 900,
   assignedDurationMs: 10000,
   emergencyLane: null,
+  emergencyActive: false,
+  emergencyCarSpawned: false,
+  controlLane: null,
+  controlLocked: false,
   finished: false,
   seededRand: Math.random,
 };
@@ -114,6 +134,64 @@ function renderMetrics(metrics = {}) {
   metricImprovementNode.textContent = Number.isFinite(metrics.improvement_pct)
     ? `${metrics.improvement_pct}%`
     : "-";
+}
+
+function renderFairness(fairness = {}) {
+  fairnessModeValueNode.textContent = fairness.mode || "-";
+  fairnessAppliedValueNode.textContent = fairness.applied ? "YES" : "NO";
+  fairnessReasonValueNode.textContent = fairness.reason || "-";
+
+  const selected = fairness.selected_lane || "-";
+  const baseline = fairness.baseline_lane || "-";
+  fairnessSelectionValueNode.textContent = `${selected} / ${baseline}`;
+
+  const laneState = fairness.lane_state || {};
+  laneKeys.forEach((lane) => {
+    const node = document.getElementById(`wait-${lane}`);
+    if (!node) return;
+    const state = laneState[lane] || {};
+    const wait = Number(state.wait_seconds || 0).toFixed(0);
+    const missed = Number(state.missed_turns || 0);
+    node.textContent = `wait ${wait}s | missed ${missed}`;
+  });
+}
+
+function renderCycleMeta(sim = {}) {
+  if (cycleLockedValueNode) {
+    cycleLockedValueNode.textContent = sim.cycle_locked ? "YES" : "NO";
+  }
+  if (cycleRemainingValueNode) {
+    const remaining = Number(sim.cycle_remaining_sec ?? 0);
+    cycleRemainingValueNode.textContent = Number.isFinite(remaining) ? `${Math.max(0, Math.ceil(remaining))}s` : "-";
+  }
+  if (controlSourceValueNode) {
+    controlSourceValueNode.textContent = sim.control_source || "-";
+  }
+  if (dqnReranValueNode) {
+    dqnReranValueNode.textContent = sim.dqn_reran_this_tick ? "YES" : "NO";
+  }
+}
+
+function applyEmergencyVisualState(sim) {
+  const emergencyActive = sim.emergency_status === "active" || sim.emergency_detected;
+  world.emergencyActive = emergencyActive;
+  world.emergencyLane = emergencyActive ? sim.selected_lane : null;
+  world.emergencyCarSpawned = false;
+
+  if (sim.emergency_status === "active") {
+    emergencyBanner.classList.remove("hidden");
+    emergencyBanner.textContent = sim.emergency_message || "Emergency corridor active.";
+    return;
+  }
+
+  if (sim.emergency_status === "cleared") {
+    emergencyBanner.classList.remove("hidden");
+    emergencyBanner.textContent = sim.emergency_message || "Emergency corridor cleared.";
+    return;
+  }
+
+  emergencyBanner.classList.add("hidden");
+  emergencyBanner.textContent = "";
 }
 
 function randomInt(min, max) {
@@ -319,7 +397,13 @@ function tickPhase(dtMs) {
         const remove = Math.min(world.counts[lane], randomInt(world.clearRateMin, world.clearRateMax));
         world.counts[lane] -= remove;
         for (let i = 0; i < remove; i += 1) {
-          const emergencyCar = world.emergencyLane && world.emergencyLane === lane && i === 0;
+          const emergencyCar =
+            world.emergencyActive &&
+            world.emergencyLane === lane &&
+            !world.emergencyCarSpawned;
+          if (emergencyCar) {
+            world.emergencyCarSpawned = true;
+          }
           spawnMovingCar(lane, emergencyCar);
         }
       }
@@ -349,7 +433,17 @@ function tickMovingCars(dtMs) {
   world.movingCars.forEach((car) => {
     car.t += (car.speed * dtMs) / 1000;
   });
+
+  const hadEmergencyCar = world.movingCars.some((car) => car.emergencyCar);
   world.movingCars = world.movingCars.filter((car) => car.t < 1.05);
+  const hasEmergencyCar = world.movingCars.some((car) => car.emergencyCar);
+
+  if (world.emergencyActive && hadEmergencyCar && !hasEmergencyCar) {
+    world.emergencyActive = false;
+    world.emergencyLane = null;
+    emergencyBanner.classList.add("hidden");
+    emergencyBanner.textContent = "";
+  }
 }
 
 function animationLoop(ts) {
@@ -381,24 +475,61 @@ function startSimulation(payload, source = "synthetic") {
   world.assignedDurationMs = (sim.selected_duration || 1) * 1000;
   world.seededRand = mulberry32(sim.seed || Date.now());
   world.finished = false;
-  world.emergencyLane = sim.emergency_detected ? sim.selected_lane : null;
+  world.controlLane = sim.selected_lane || null;
+  world.controlLocked = Boolean(sim.cycle_locked);
+  applyEmergencyVisualState(sim);
 
-  if (sim.emergency_detected) {
-    emergencyBanner.classList.remove("hidden");
-    emergencyBanner.textContent = sim.emergency_message;
-  } else {
-    emergencyBanner.classList.add("hidden");
-    emergencyBanner.textContent = "";
-  }
-
-  addEvent(`${source}: ${decision.direction} selected for ${decision.duration}s`);
+  addEvent(
+    `${source}: ${decision.direction} selected for ${decision.duration}s` +
+      ` | source=${sim.control_source || "unknown"}`
+  );
   renderCounts();
   enterGreen(sim.selected_lane);
+  if (Number.isFinite(Number(sim.cycle_remaining_sec)) && world.phaseType === "fixed-green") {
+    world.phaseTimeMs = Math.max(0, Number(sim.cycle_remaining_sec) * 1000);
+  }
+  const activeLabel = world.activeLane ? laneLabels[world.activeLane] : "-";
+  simStatus.textContent =
+    `Cycle locked on ${activeLabel}. Models refreshed every ${sim.model_refresh_sec || sim.tick_interval_sec || 3}s.`;
   drawScene();
+  renderCycleMeta(sim);
 
   if (animationId) window.cancelAnimationFrame(animationId);
   lastTs = 0;
   animationId = window.requestAnimationFrame(animationLoop);
+}
+
+function applySyntheticTick(payload, source = "synthetic") {
+  const sim = payload.simulation || {};
+  const needsNewCycle =
+    Boolean(sim.dqn_reran_this_tick) ||
+    sim.control_source === "emergency_override" ||
+    !world.controlLocked ||
+    !world.activeLane;
+
+  if (needsNewCycle) {
+    startSimulation(payload, source);
+    return;
+  }
+
+  world.counts = { ...sim.initial_counts };
+  world.clearRateMin = sim.clear_rate_min || world.clearRateMin;
+  world.clearRateMax = sim.clear_rate_max || world.clearRateMax;
+  world.controlLocked = Boolean(sim.cycle_locked);
+  applyEmergencyVisualState(sim);
+
+  if (world.phaseType === "fixed-green" && Number.isFinite(Number(sim.cycle_remaining_sec))) {
+    world.phaseTimeMs = Math.max(0, Number(sim.cycle_remaining_sec) * 1000);
+  }
+
+  const activeLabel = world.activeLane ? laneLabels[world.activeLane] : "-";
+  simStatus.textContent =
+    `Cycle locked on ${activeLabel}. Models refreshed every ${sim.model_refresh_sec || sim.tick_interval_sec || 3}s.`;
+
+  renderCounts();
+  updatePhaseText();
+  drawScene();
+  renderCycleMeta(sim);
 }
 
 function resetWorld() {
@@ -418,6 +549,10 @@ function resetWorld() {
   world.clearAccumulatorMs = 0;
   world.assignedDurationMs = 10000;
   world.emergencyLane = null;
+  world.emergencyActive = false;
+  world.emergencyCarSpawned = false;
+  world.controlLane = null;
+  world.controlLocked = false;
   world.finished = false;
 
   events.length = 0;
@@ -426,6 +561,7 @@ function resetWorld() {
   renderCounts();
   updatePhaseText();
   drawScene();
+  renderCycleMeta({});
 }
 
 async function runSyntheticCycle() {
@@ -435,6 +571,7 @@ async function runSyntheticCycle() {
     seed: Number(seedNode.value || 42),
     tick: syntheticTick,
     current_counts: world.counts,
+    fairness_mode: fairnessModeNode.value,
   };
 
   const response = await fetch("/api/synthetic_cycle", {
@@ -448,7 +585,8 @@ async function runSyntheticCycle() {
   }
 
   renderMetrics(payload.congestion_metrics || {});
-  startSimulation(payload, "synthetic_cycle");
+  renderFairness(payload.fairness || payload.model_outputs?.fairness || {});
+  applySyntheticTick(payload, "synthetic_cycle");
   syntheticTick += 1;
 }
 
@@ -459,6 +597,7 @@ async function spawnAmbulance() {
     body: JSON.stringify({
       current_counts: world.counts,
       lane: ambulanceLaneNode.value,
+      fairness_mode: fairnessModeNode.value,
     }),
   });
   const payload = await response.json();
@@ -467,7 +606,48 @@ async function spawnAmbulance() {
   }
 
   addEvent(`ambulance_spawn: ${payload.scenario?.lane || "auto"}`);
-  startSimulation(payload, "ambulance_spawn");
+  renderFairness(payload.fairness || payload.model_outputs?.fairness || {});
+  applySyntheticTick(payload, "ambulance_spawn");
+}
+
+async function resetSyntheticRuntime() {
+  const response = await fetch("/api/synthetic_reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) {
+    throw new Error("Failed to reset synthetic runtime");
+  }
+}
+
+function stopAutoFlow() {
+  if (autoFlowTimer) {
+    window.clearInterval(autoFlowTimer);
+    autoFlowTimer = 0;
+  }
+  autoFlowRunning = false;
+  autoTickBusy = false;
+  autoBtn.textContent = "Start Auto Flow";
+}
+
+function startAutoFlow() {
+  if (autoFlowRunning) return;
+  autoFlowRunning = true;
+  autoBtn.textContent = "Stop Auto Flow";
+  autoFlowTimer = window.setInterval(async () => {
+    if (!autoFlowRunning || autoModeNode.value !== "on" || autoTickBusy) return;
+    autoTickBusy = true;
+    try {
+      await runSyntheticCycle();
+      setMessage("Auto flow tick completed.");
+    } catch (error) {
+      stopAutoFlow();
+      setMessage(error.message || "Auto flow failed", true);
+    } finally {
+      autoTickBusy = false;
+    }
+  }, 3000);
 }
 
 intensityNode.addEventListener("input", () => {
@@ -490,6 +670,35 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+autoBtn.addEventListener("click", async () => {
+  if (autoFlowRunning) {
+    stopAutoFlow();
+    setMessage("Auto flow stopped.");
+    return;
+  }
+
+  if (autoModeNode.value !== "on") {
+    setMessage("Set Continuous Flow to Auto every 3s first.", true);
+    return;
+  }
+
+  setMessage("Starting auto flow...");
+  try {
+    await runSyntheticCycle();
+    startAutoFlow();
+    setMessage("Auto flow started.");
+  } catch (error) {
+    stopAutoFlow();
+    setMessage(error.message || "Auto flow start failed", true);
+  }
+});
+
+autoModeNode.addEventListener("change", () => {
+  if (autoModeNode.value !== "on") {
+    stopAutoFlow();
+  }
+});
+
 spawnBtn.addEventListener("click", async () => {
   setMessage("Spawning ambulance and forcing corridor preemption...");
   spawnBtn.disabled = true;
@@ -504,13 +713,22 @@ spawnBtn.addEventListener("click", async () => {
 });
 
 resetBtn.addEventListener("click", () => {
+  stopAutoFlow();
   syntheticTick = 0;
-  resetWorld();
-  emergencyBanner.classList.add("hidden");
-  emergencyBanner.textContent = "";
-  simStatus.textContent = "Ready for synthetic traffic generation.";
-  setMessage("Synthetic demo reset.");
+  resetSyntheticRuntime()
+    .catch(() => {
+      setMessage("Reset partially completed (server state not cleared).", true);
+    })
+    .finally(() => {
+      resetWorld();
+      renderFairness({});
+      emergencyBanner.classList.add("hidden");
+      emergencyBanner.textContent = "";
+      simStatus.textContent = "Ready for synthetic traffic generation.";
+      setMessage("Synthetic demo reset.");
+    });
 });
 
 resetWorld();
 intensityValueNode.textContent = `${Number(intensityNode.value).toFixed(1)}x`;
+renderFairness({});

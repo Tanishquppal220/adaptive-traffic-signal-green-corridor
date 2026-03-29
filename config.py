@@ -96,3 +96,20 @@ DENSITY_MAX_CLIP = 50.0
 # ── Emergency Model Runtime ───────────────────────────────────────────────────
 EMERGENCY_CONFIDENCE_THRESHOLD = 0.5
 EMERGENCY_LABEL_KEYWORDS: tuple[str, ...] = ("ambulance", "fire", "police")
+
+# Emergency corridor timing policy
+# Applied duration during emergency: min(dqn_duration + buffer, cap)
+EMERGENCY_DURATION_BUFFER_SEC = 6
+EMERGENCY_DURATION_CAP_SEC = 30
+
+# If emergency lane queue is already low, avoid wasting long green windows.
+EMERGENCY_LOW_QUEUE_THRESHOLD = 4
+EMERGENCY_LOW_QUEUE_MAX_SEC = 12
+
+# Fairness / anti-starvation policy
+FAIRNESS_DEFAULT_MODE: str = "soft"  # off | soft | hard
+FAIRNESS_WAIT_THRESHOLD_SEC: float = 30.0
+FAIRNESS_MISSED_TURNS_THRESHOLD: int = 3
+FAIRNESS_SOFT_WAIT_WEIGHT: float = 0.35
+FAIRNESS_SOFT_MISSED_WEIGHT: float = 0.45
+FAIRNESS_SOFT_OVERRIDE_MARGIN: float = 2.0
