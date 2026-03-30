@@ -4,11 +4,11 @@
 
 A demo that shows, on **real video or live camera** (even 1 camera is fine):
 
-[] **Vehicle detection + per-lane counts**  
-[] **Adaptive signal timing** (green time changes based on density)  
-[] **Emergency detection trigger** (ambulance OR siren OR manual override)  
-[] **Green corridor mode** (preemption sequence across 2–3 “intersections” in software + Arduino LEDs)  
-[] **Logging + basic dashboard** (simple UI or web page)
+1)**Vehicle detection + per-lane counts**  
+2) **Adaptive signal timing** (green time changes based on density)  
+3) **Emergency detection trigger** (ambulance OR siren OR manual override)  
+4) **Green corridor mode** (preemption sequence across 2–3 “intersections” in software + Arduino LEDs)  
+5) **Logging + basic dashboard** (simple UI or web page)
 
 You can still keep LSTM + DQN in the roadmap, but they are **not required for a solid month MVP**.
 
