@@ -481,7 +481,8 @@ function startSimulation(payload, source = "synthetic") {
 
   addEvent(
     `${source}: ${decision.direction} selected for ${decision.duration}s` +
-      ` | source=${sim.control_source || "unknown"}`
+      ` | source=${sim.control_source || "unknown"}` +
+      (sim.lane_repeat_blocked ? ` | scheduler=${sim.scheduler_reason || "no_consecutive_same_lane"}` : "")
   );
   renderCounts();
   enterGreen(sim.selected_lane);
@@ -490,7 +491,8 @@ function startSimulation(payload, source = "synthetic") {
   }
   const activeLabel = world.activeLane ? laneLabels[world.activeLane] : "-";
   simStatus.textContent =
-    `Cycle locked on ${activeLabel}. Models refreshed every ${sim.model_refresh_sec || sim.tick_interval_sec || 3}s.`;
+    `Cycle locked on ${activeLabel}. Models refreshed every ${sim.model_refresh_sec || sim.tick_interval_sec || 3}s.` +
+    (sim.lane_repeat_blocked ? ` Scheduler enforced lane rotation.` : "");
   drawScene();
   renderCycleMeta(sim);
 

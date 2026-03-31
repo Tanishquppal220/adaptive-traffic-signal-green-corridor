@@ -31,6 +31,8 @@ def _new_synthetic_runtime_state() -> dict[str, Any]:
         "last_tick_monotonic": None,
         "last_counts": {lane: 0 for lane in LANE_KEYS},
         "fairness_mode": str(FAIRNESS_DEFAULT_MODE),
+        "last_served_lane": None,
+        "cycle_index": 0,
     }
 
 
@@ -146,6 +148,146 @@ def _synthesize_lane_counts(
         next_counts[lane] = int(np.clip(carry + arrivals, 0, 120))
 
     return next_counts
+
+
+def _apply_low_traffic_duration_policy(
+    result: dict[str, Any],
+    lane_counts: dict[str, int],
+    profile_name: str,
+) -> tuple[dict[str, Any], bool]:
+    total_queue = int(sum(lane_counts.values()))
+    low_traffic_profile = profile_name in set(cfg.LOW_TRAFFIC_PROFILES)
+
+    if not low_traffic_profile and total_queue > int(cfg.LOW_TRAFFIC_QUEUE_THRESHOLD):
+        return result, False
+
+    selected_lane = DIRECTION_TO_LANE.get(
+        str(result.get("direction", "N")), "laneN")
+    selected_lane_count = int(lane_counts.get(selected_lane, 0))
+    current_duration = int(result.get("duration", cfg.MIN_GREEN))
+    target_floor = min(
+        int(cfg.LOW_TRAFFIC_MAX_GREEN_FLOOR),
+        int(cfg.LOW_TRAFFIC_MIN_GREEN_FLOOR)
+        + selected_lane_count * int(cfg.LOW_TRAFFIC_PER_VEHICLE_BONUS),
+    )
+    adjusted_duration = max(current_duration, target_floor)
+
+    if adjusted_duration == current_duration:
+        return result, False
+
+    adjusted = {
+        **result,
+        **{lane: 0 for lane in LANE_KEYS},
+        selected_lane: adjusted_duration,
+        "duration": adjusted_duration,
+    }
+
+    fairness = dict(adjusted.get("fairness", {}))
+    fairness["selected_duration"] = adjusted_duration
+    if fairness.get("reason") in (None, "baseline_retained"):
+        fairness["reason"] = "low_traffic_duration_floor"
+    adjusted["fairness"] = fairness
+    return adjusted, True
+
+
+def _compute_congestion_metrics(
+    lane_counts: dict[str, int],
+    result: dict[str, Any],
+) -> dict[str, float]:
+    total_queue = int(sum(lane_counts.values()))
+    if total_queue <= 0:
+        return {
+            "total_queue": 0,
+            "baseline_clearance_seconds": 0.0,
+            "dqn_clearance_seconds": 0.0,
+            "improvement_pct": 0.0,
+        }
+
+    selected_lane = DIRECTION_TO_LANE.get(
+        str(result.get("direction", "N")), "laneN")
+    selected_lane_queue = float(lane_counts.get(selected_lane, 0))
+    selected_share = selected_lane_queue / max(1.0, float(total_queue))
+    selected_duration = float(
+        max(1, int(result.get("duration", cfg.MIN_GREEN))))
+    fairness = result.get("fairness", {})
+
+    baseline_rate = 1.15
+    baseline_clearance_seconds = float(total_queue) / baseline_rate
+
+    duration_gain = min(selected_duration / 30.0, 1.5) * 0.25
+    concentration_gain = max(0.0, selected_share - 0.25) * 1.2
+    fairness_gain = 0.08 if bool(fairness.get("applied", False)) else 0.0
+    dqn_rate = baseline_rate + duration_gain + concentration_gain + fairness_gain
+    dqn_clearance_seconds = float(total_queue) / max(0.4, dqn_rate)
+
+    improvement_pct = round(
+        max(0.0, (baseline_clearance_seconds - dqn_clearance_seconds)
+            / max(1e-6, baseline_clearance_seconds) * 100.0),
+        2,
+    )
+
+    return {
+        "total_queue": total_queue,
+        "baseline_clearance_seconds": round(baseline_clearance_seconds, 2),
+        "dqn_clearance_seconds": round(dqn_clearance_seconds, 2),
+        "improvement_pct": improvement_pct,
+    }
+
+
+def _apply_non_repeat_scheduler(
+    result: dict[str, Any],
+    lane_counts: dict[str, int],
+    last_served_lane: str | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    selected_direction = str(result.get("direction", "N"))
+    selected_lane = DIRECTION_TO_LANE.get(selected_direction, "laneN")
+
+    meta = {
+        "selected_by_scheduler": False,
+        "lane_repeat_blocked": False,
+        "scheduler_reason": "baseline_boundary_selection",
+        "previous_lane": last_served_lane,
+    }
+
+    if not last_served_lane or selected_lane != last_served_lane:
+        return result, meta
+
+    alternatives = [
+        lane for lane in LANE_KEYS
+        if lane != last_served_lane and int(lane_counts.get(lane, 0)) > 0
+    ]
+    if not alternatives:
+        meta["scheduler_reason"] = "same_lane_allowed_only_lane_has_queue"
+        return result, meta
+
+    next_lane = max(
+        alternatives,
+        key=lambda lane: (int(lane_counts.get(lane, 0)), -
+                          LANE_KEYS.index(lane)),
+    )
+    next_direction = next_lane.replace("lane", "")
+    duration = int(result.get("duration", 0))
+
+    adjusted = {
+        **result,
+        **{lane: 0 for lane in LANE_KEYS},
+        next_lane: duration,
+        "direction": next_direction,
+        "mode": "scheduler-no-repeat",
+    }
+
+    fairness = dict(adjusted.get("fairness", {}))
+    fairness["selected_lane"] = next_lane
+    fairness["selected_duration"] = duration
+    fairness["reason"] = "scheduler_no_repeat"
+    adjusted["fairness"] = fairness
+
+    meta.update({
+        "selected_by_scheduler": True,
+        "lane_repeat_blocked": True,
+        "scheduler_reason": "no_consecutive_same_lane",
+    })
+    return adjusted, meta
 
 
 def _build_response(result: dict, payload: dict, extra: dict | None = None) -> dict:
@@ -285,6 +427,12 @@ def synthetic_cycle():
 
     control_source = "cycle_lock_reuse"
     dqn_reran_this_tick = False
+    scheduler_meta = {
+        "selected_by_scheduler": False,
+        "lane_repeat_blocked": False,
+        "scheduler_reason": "cycle_lock_reuse",
+        "previous_lane": SYNTHETIC_RUNTIME.get("last_served_lane"),
+    }
 
     if rerun_control:
         result = controller.decide_from_lane_counts(
@@ -293,6 +441,18 @@ def synthetic_cycle():
             locked_control=None,
             update_fairness_state=True,
         )
+        result, scheduler_meta = _apply_non_repeat_scheduler(
+            result=result,
+            lane_counts=synthetic_counts,
+            last_served_lane=SYNTHETIC_RUNTIME.get("last_served_lane"),
+        )
+        result, low_traffic_adjusted = _apply_low_traffic_duration_policy(
+            result=result,
+            lane_counts=synthetic_counts,
+            profile_name=profile,
+        )
+        if low_traffic_adjusted:
+            scheduler_meta["scheduler_reason"] = "low_traffic_duration_floor"
         selected_lane = DIRECTION_TO_LANE.get(
             str(result.get("direction", "N")), "laneN")
         locked_control = {
@@ -311,6 +471,9 @@ def synthetic_cycle():
         remaining_sec = float(max(0, int(result.get("duration", 0))))
         control_source = "dqn_cycle_boundary"
         dqn_reran_this_tick = True
+        SYNTHETIC_RUNTIME["last_served_lane"] = selected_lane
+        SYNTHETIC_RUNTIME["cycle_index"] = int(
+            SYNTHETIC_RUNTIME.get("cycle_index", 0)) + 1
     else:
         result = controller.decide_from_lane_counts(
             synthetic_counts,
@@ -331,20 +494,15 @@ def synthetic_cycle():
         "dqn_reran_this_tick": dqn_reran_this_tick,
         "control_source": control_source,
         "model_refresh_sec": float(cfg.INFERENCE_INTERVAL),
+        "cycle_index": int(SYNTHETIC_RUNTIME.get("cycle_index", 0)),
+        **scheduler_meta,
     }
 
     payload = _build_simulation_payload(result, cycle_meta=cycle_meta)
     payload["source"] = "synthetic"
     payload["traffic_profile"] = profile
 
-    total_queue = int(sum(synthetic_counts.values()))
-    baseline_clearance_seconds = max(1.0, total_queue / 1.2)
-    dqn_clearance_seconds = max(1.0, total_queue / 1.8)
-    improvement_pct = round(
-        max(0.0, (baseline_clearance_seconds - dqn_clearance_seconds) /
-            baseline_clearance_seconds * 100.0),
-        2,
-    )
+    congestion_metrics = _compute_congestion_metrics(synthetic_counts, result)
 
     extra = {
         "scenario": {
@@ -356,12 +514,10 @@ def synthetic_cycle():
             "fairness_mode": fairness_mode,
             "dqn_reran_this_tick": dqn_reran_this_tick,
             "control_source": control_source,
+            "scheduler_reason": scheduler_meta.get("scheduler_reason"),
         },
         "congestion_metrics": {
-            "total_queue": total_queue,
-            "baseline_clearance_seconds": round(baseline_clearance_seconds, 2),
-            "dqn_clearance_seconds": round(dqn_clearance_seconds, 2),
-            "improvement_pct": improvement_pct,
+            **congestion_metrics,
         },
     }
     return jsonify(_build_response(result, payload, extra=extra))
@@ -396,6 +552,7 @@ def spawn_ambulance():
     )
 
     emergency_duration = float(max(0, int(result.get("duration", 0))))
+    previous_lane = SYNTHETIC_RUNTIME.get("last_served_lane")
     selected_lane = DIRECTION_TO_LANE.get(
         str(result.get("direction", "N")), "laneN")
     SYNTHETIC_RUNTIME["locked_control"] = {
@@ -415,6 +572,9 @@ def spawn_ambulance():
     SYNTHETIC_RUNTIME["last_tick_monotonic"] = time.monotonic()
     SYNTHETIC_RUNTIME["last_counts"] = dict(current_counts)
     SYNTHETIC_RUNTIME["fairness_mode"] = fairness_mode
+    SYNTHETIC_RUNTIME["last_served_lane"] = selected_lane
+    SYNTHETIC_RUNTIME["cycle_index"] = int(
+        SYNTHETIC_RUNTIME.get("cycle_index", 0)) + 1
 
     cycle_meta = {
         "cycle_locked": emergency_duration > 0,
@@ -423,6 +583,11 @@ def spawn_ambulance():
         "control_source": "emergency_override",
         "emergency_preempted_cycle": True,
         "model_refresh_sec": float(cfg.INFERENCE_INTERVAL),
+        "cycle_index": int(SYNTHETIC_RUNTIME.get("cycle_index", 0)),
+        "selected_by_scheduler": False,
+        "lane_repeat_blocked": False,
+        "scheduler_reason": "emergency_override",
+        "previous_lane": previous_lane,
     }
 
     payload = _build_simulation_payload(result, cycle_meta=cycle_meta)
