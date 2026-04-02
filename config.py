@@ -51,8 +51,7 @@ LANE_TO_DIRECTION: dict[str, str] = {
     "laneE": "E",
     "laneW": "W",
 }
-DIRECTION_TO_LANE: dict[str, str] = {
-    v: k for k, v in LANE_TO_DIRECTION.items()}
+DIRECTION_TO_LANE: dict[str, str] = {v: k for k, v in LANE_TO_DIRECTION.items()}
 
 # ── DQN Action/State Contracts ───────────────────────────────────────────────
 N_DIRECTIONS = len(DIRECTIONS)
@@ -120,3 +119,14 @@ LOW_TRAFFIC_MIN_GREEN_FLOOR: int = 7
 LOW_TRAFFIC_PER_VEHICLE_BONUS: int = 1
 LOW_TRAFFIC_MAX_GREEN_FLOOR: int = 12
 LOW_TRAFFIC_PROFILES: tuple[str, ...] = ("night",)
+
+# Predictive signal-control tuning (phase 1: decision-layer fusion)
+PREDICTIVE_CONTROL_ENABLED: bool = True
+PREDICTIVE_ALPHA_CURRENT: float = 0.75
+PREDICTIVE_BETA_FORECAST: float = 0.30
+PREDICTIVE_EMA_ALPHA: float = 0.35
+PREDICTIVE_SURGE_THRESHOLD: float = 4.0
+PREDICTIVE_SURGE_BONUS_CAP: float = 6.0
+PREDICTIVE_SWITCH_PENALTY: float = 2.0
+PREDICTIVE_MIN_HOLD_CYCLES: int = 1
+PREDICTIVE_HARD_OVERRIDE_MARGIN: float = 5.0
