@@ -1,9 +1,12 @@
-"""Flask GUI package for the adaptive traffic signal system.
+from __future__ import annotations
 
-Provides ``create_app()`` — an application factory that wires up routes
-and shared resources (detector instance) without polluting module-level state.
-"""
+from flask import Flask
 
-from gui.app import create_app
 
-__all__ = ["create_app"]
+def create_app() -> Flask:
+    app = Flask(__name__, template_folder="templates", static_folder="static")
+
+    from .routes import bp as gui_bp
+
+    app.register_blueprint(gui_bp)
+    return app

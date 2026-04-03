@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Upload Pipeline Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <main class="page-shell">
+        <header class="hero">
+            <p class="eyebrow">Adaptive Traffic Signal Green Corridor</p>
+            <h1>Upload Demo: YOLO to DQN</h1>
+            <p class="subtitle">Upload one image per lane, run the end-to-end controller, and watch top-down signal
+                simulation.</p>
+            <p><a class="demo-link" href="{{ url_for('gui.index') }}">Back to Demo Selector</a> · <a class="demo-link"
+                    href="{{ url_for('gui.synthetic_demo') }}">Go to Synthetic Demo</a></p>
+        </header>
+
+        <section class="panel upload-panel">
+            <h2>Step 1: Upload Lane Images</h2>
+            <form id="laneUploadForm" class="upload-grid" enctype="multipart/form-data">
+                <label class="upload-card">
+                    <span>North Lane</span>
+                    <input type="file" name="laneN" accept="image/*" required>
+                </label>
+                <label class="upload-card">
+                    <span>South Lane</span>
+                    <input type="file" name="laneS" accept="image/*" required>
+                </label>
+                <label class="upload-card">
+                    <span>East Lane</span>
+                    <input type="file" name="laneE" accept="image/*" required>
+                </label>
+                <label class="upload-card">
+                    <span>West Lane</span>
+                    <input type="file" name="laneW" accept="image/*" required>
+                </label>
+                <div class="actions">
+                    <button id="runBtn" type="submit">Run End-to-End Orchestrator</button>
+                    <button id="resetBtn" type="button" class="ghost">Reset</button>
+                </div>
+            </form>
+            <p id="formMessage" class="message" aria-live="polite"></p>
+        </section>
+
+        <section class="panel result-panel">
+            <h2>Step 2: Model Decision</h2>
+            <div class="decision-grid">
+                <div><strong>Mode</strong><span id="modeValue">-</span></div>
+                <div><strong>Chosen Direction</strong><span id="directionValue">-</span></div>
+                <div><strong>Green Duration</strong><span id="durationValue">-</span></div>
+                <div><strong>Action Index</strong><span id="actionValue">-</span></div>
+            </div>
+
+            <h3 class="subsection-title">DQN Timings Per Lane</h3>
+            <table class="timing-table" aria-label="Assigned green timings by lane">
+                <thead>
+                    <tr>
+                        <th>Lane</th>
+                        <th>Assigned Green (s)</th>
+                        <th>Green Cycles</th>
+                    </tr>
+                </thead>
+                <tbody id="timingTableBody">
+                    <tr data-lane="laneN">
+                        <td>North</td>
+                        <td id="timing-laneN">-</td>
+                        <td id="cycles-laneN">0</td>
+                    </tr>
+                    <tr data-lane="laneS">
+                        <td>South</td>
+                        <td id="timing-laneS">-</td>
+                        <td id="cycles-laneS">0</td>
+                    </tr>
+                    <tr data-lane="laneE">
+                        <td>East</td>
+                        <td id="timing-laneE">-</td>
+                        <td id="cycles-laneE">0</td>
+                    </tr>
+                    <tr data-lane="laneW">
+                        <td>West</td>
+                        <td id="timing-laneW">-</td>
+                        <td id="cycles-laneW">0</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3 class="subsection-title">Model Outputs</h3>
+            <div class="model-grid">
+                <article class="model-card">
+                    <h4>Traffic Detector</h4>
+                    <p>Mode: <strong id="detectorMode">-</strong></p>
+                    <p>Total Vehicles: <strong id="detectorTotal">-</strong></p>
+                    <p>N/S/E/W: <strong id="detectorCounts">-</strong></p>
+                </article>
+                <article class="model-card">
+                    <h4>Density Predictor</h4>
+                    <p>Mode: <strong id="densityMode">-</strong></p>
+                    <p>Horizon: <strong id="densityHorizon">-</strong></p>
+                    <p>N/S/E/W: <strong id="densityValues">-</strong></p>
+                </article>
+                <article class="model-card">
+                    <h4>Emergency Classifier</h4>
+                    <p>Detected: <strong id="emergencyDetected">-</strong></p>
+                    <p>Label: <strong id="emergencyLabel">-</strong></p>
+                    <p>Confidence: <strong id="emergencyConfidence">-</strong></p>
+                    <p>Direction: <strong id="emergencyDirection">-</strong></p>
+                </article>
+                <article class="model-card">
+                    <h4>DQN Decision</h4>
+                    <p>Mode: <strong id="dqnMode">-</strong></p>
+                    <p>Action: <strong id="dqnAction">-</strong></p>
+                    <p>Direction: <strong id="dqnDirection">-</strong></p>
+                    <p>Duration: <strong id="dqnDuration">-</strong></p>
+                </article>
+            </div>
+
+            <div id="emergencyBanner" class="emergency-banner hidden"></div>
+        </section>
+
+        <section class="panel sim-panel">
+            <h2>Step 3: Visual Simulation</h2>
+            <div id="simStatus" class="sim-status">Waiting for upload...</div>
+            <div class="sim-layout">
+                <div class="canvas-wrap">
+                    <canvas id="intersectionCanvas" width="980" height="560"
+                        aria-label="Top-down traffic intersection simulation"></canvas>
+                </div>
+                <aside class="telemetry">
+                    <h3>Live Queue</h3>
+                    <div class="queue-grid">
+                        <div class="queue-item"><span>North</span><strong id="count-laneN">0</strong></div>
+                        <div class="queue-item"><span>South</span><strong id="count-laneS">0</strong></div>
+                        <div class="queue-item"><span>East</span><strong id="count-laneE">0</strong></div>
+                        <div class="queue-item"><span>West</span><strong id="count-laneW">0</strong></div>
+                    </div>
+                    <h3>Signal Phase</h3>
+                    <div class="phase-box">
+                        <p>Active Lane: <strong id="phaseLane">-</strong></p>
+                        <p>Signal: <strong id="phaseSignal">RED</strong></p>
+                        <p>Remaining: <strong id="phaseRemaining">-</strong></p>
+                    </div>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+
+</html>
