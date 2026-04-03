@@ -6,7 +6,6 @@ from typing import Any
 import numpy as np
 
 import config as cfg
-
 from config import DIRECTION_TO_LANE, DIRECTIONS, LANE_KEYS
 from control.density_predictor import DensityPredictor
 from control.emergency_classifier import EmergencyClassifier
@@ -17,7 +16,7 @@ from control.schema import (
 )
 from control.signal_controller import SignalController
 from control.traffic_detector import TrafficDetector
-
+from training.DQN.environment import encode_action
 
 FAIRNESS_MODES = {"off", "soft", "hard"}
 
@@ -39,8 +38,7 @@ class ModelController:
         self._emergency_classifier = EmergencyClassifier()
         self._density_predictor = DensityPredictor()
         self._signal_controller = SignalController(
-            weights_path=dqn_weights_path or Path(
-                "models") / "dqn_signal_optimizer.pt",
+            weights_path=dqn_weights_path or Path("models") / "dqn_signal_optimizer.pt",
             device=device,
         )
         self._last_lane_counts = {k: 0 for k in LANE_KEYS}
@@ -52,6 +50,9 @@ class ModelController:
             }
             for lane in LANE_KEYS
         }
+        self._predictive_ema_counts = {lane: 0.0 for lane in LANE_KEYS}
+        self._predictive_last_selected_lane: str | None = None
+        self._predictive_hold_cycles = 0
 
     @property
     def mode(self) -> str:
@@ -64,6 +65,14 @@ class ModelController:
             "emergency_classifier": self._emergency_classifier.status(),
             "density_predictor": self._density_predictor.status(),
             "signal_controller": self._signal_controller.status(),
+            "predictive_control": {
+                "enabled": bool(cfg.PREDICTIVE_CONTROL_ENABLED),
+                "last_selected_lane": self._predictive_last_selected_lane,
+                "hold_cycles": int(self._predictive_hold_cycles),
+                "ema_lane_counts": {
+                    lane: round(float(self._predictive_ema_counts[lane]), 3) for lane in LANE_KEYS
+                },
+            },
         }
 
     def decide_from_frame(self, frame: np.ndarray) -> dict[str, Any]:
@@ -179,6 +188,15 @@ class ModelController:
             }
 
         density = self._density_predictor.predict(lane_counts)
+        emergency_detected = bool(emergency.get("detected", False))
+        was_emergency_active = self._last_emergency_active
+
+        predictive_control = self._build_predictive_control_inputs(
+            lane_counts=lane_counts,
+            density=density,
+            emergency_detected=emergency_detected,
+            cycle_locked=locked_control is not None,
+        )
 
         if locked_control is not None:
             baseline_decision = {
@@ -189,11 +207,23 @@ class ModelController:
                     **locked_control.get("decision", {}),
                 }
         else:
-            baseline_decision = self._signal_controller.decide(lane_counts)
+            baseline_decision = self._signal_controller.decide(
+                predictive_control["effective_lane_counts"]
+            )
+            baseline_decision, predictive_control = self._apply_predictive_stability_guard(
+                baseline_decision=baseline_decision,
+                predictive_control=predictive_control,
+            )
+            self._update_predictive_selection(
+                self._lane_from_direction(str(baseline_decision.get("direction", "N"))),
+                emergency_detected=emergency_detected,
+            )
 
-        decision = {
-            **locked_control.get("decision", {})
-        } if locked_control is not None else {**baseline_decision}
+        decision = (
+            {**locked_control.get("decision", {})}
+            if locked_control is not None
+            else {**baseline_decision}
+        )
         fairness_mode_resolved = self._normalize_fairness_mode(fairness_mode)
         fairness_info = {
             "mode": fairness_mode_resolved,
@@ -210,15 +240,12 @@ class ModelController:
             "lane_state": self._fairness_snapshot(),
         }
 
-        emergency_detected = bool(emergency.get("detected", False))
-        was_emergency_active = self._last_emergency_active
-
         if emergency_detected:
-            emergency_direction = str(emergency.get("direction") or top_direction(
-                lane_counts_to_direction_counts(lane_counts)
-            ))
-            emergency_lane = DIRECTION_TO_LANE.get(
-                emergency_direction, "laneN")
+            emergency_direction = str(
+                emergency.get("direction")
+                or top_direction(lane_counts_to_direction_counts(lane_counts))
+            )
+            emergency_lane = DIRECTION_TO_LANE.get(emergency_direction, "laneN")
             base_duration = int(baseline_decision.get("duration", 0))
             queue_in_emergency_lane = int(lane_counts.get(emergency_lane, 0))
 
@@ -263,11 +290,12 @@ class ModelController:
                     "reason": "cycle_lock_reuse",
                     "selected_lane": locked_control.get("selected_lane")
                     or self._lane_from_direction(
-                        str(locked_control.get(
-                            "decision", {}).get("direction", "N"))
+                        str(locked_control.get("decision", {}).get("direction", "N"))
                     ),
                     "selected_duration": int(locked_control.get("decision", {}).get("duration", 0)),
-                    "baseline_lane": self._lane_from_direction(str(baseline_decision.get("direction", "N"))),
+                    "baseline_lane": self._lane_from_direction(
+                        str(baseline_decision.get("direction", "N"))
+                    ),
                     "baseline_duration": int(baseline_decision.get("duration", 0)),
                 }
             else:
@@ -314,8 +342,176 @@ class ModelController:
                 "controller_mode": decision.get("mode", self.mode),
                 "fairness_mode": fairness_mode_resolved,
                 "fairness_applied": bool(fairness_info.get("applied", False)),
+                "predictive_control": predictive_control,
             },
         }
+
+    def _build_predictive_control_inputs(
+        self,
+        lane_counts: dict[str, int],
+        density: dict[str, Any],
+        emergency_detected: bool,
+        cycle_locked: bool,
+    ) -> dict[str, Any]:
+        raw_counts = {lane: int(lane_counts.get(lane, 0)) for lane in LANE_KEYS}
+        payload: dict[str, Any] = {
+            "enabled": bool(cfg.PREDICTIVE_CONTROL_ENABLED),
+            "applied": False,
+            "reason": "predictive_disabled",
+            "raw_lane_counts": {lane: float(raw_counts[lane]) for lane in LANE_KEYS},
+            "smoothed_lane_counts": {lane: float(raw_counts[lane]) for lane in LANE_KEYS},
+            "forecast_lane_counts": {lane: float(raw_counts[lane]) for lane in LANE_KEYS},
+            "effective_scores": {lane: float(raw_counts[lane]) for lane in LANE_KEYS},
+            "effective_lane_counts": raw_counts,
+            "surge_detected_by_lane": {lane: False for lane in LANE_KEYS},
+            "switch_penalty_applied": False,
+            "switch_blocked": False,
+            "selected_lane": None,
+            "selected_lane_gain": 0.0,
+            "hold_cycles": int(self._predictive_hold_cycles),
+            "last_selected_lane": self._predictive_last_selected_lane,
+        }
+
+        if not bool(cfg.PREDICTIVE_CONTROL_ENABLED):
+            return payload
+        if cycle_locked:
+            payload["reason"] = "cycle_lock_reuse"
+            return payload
+        if emergency_detected:
+            payload["reason"] = "bypassed_during_emergency"
+            return payload
+
+        predictions = density.get("predictions", {}) if isinstance(density, dict) else {}
+        alpha_current = float(cfg.PREDICTIVE_ALPHA_CURRENT)
+        beta_forecast = float(cfg.PREDICTIVE_BETA_FORECAST)
+        ema_alpha = float(cfg.PREDICTIVE_EMA_ALPHA)
+        surge_threshold = float(cfg.PREDICTIVE_SURGE_THRESHOLD)
+        surge_bonus_cap = float(cfg.PREDICTIVE_SURGE_BONUS_CAP)
+        switch_penalty = float(cfg.PREDICTIVE_SWITCH_PENALTY)
+
+        scores: dict[str, float] = {}
+        effective_lane_counts: dict[str, int] = {}
+        smoothed_lane_counts: dict[str, float] = {}
+        forecast_lane_counts: dict[str, float] = {}
+        surge_detected_by_lane: dict[str, bool] = {}
+
+        for lane in LANE_KEYS:
+            direction = lane.replace("lane", "")
+            current_value = float(raw_counts[lane])
+            forecast_value = float(predictions.get(direction, current_value))
+
+            prev_ema = float(self._predictive_ema_counts.get(lane, current_value))
+            smoothed_value = ema_alpha * current_value + (1.0 - ema_alpha) * prev_ema
+            self._predictive_ema_counts[lane] = smoothed_value
+
+            surge_delta = max(0.0, forecast_value - current_value)
+            surge_detected = surge_delta >= surge_threshold
+            surge_bonus = min(surge_bonus_cap, surge_delta) if surge_detected else 0.0
+
+            score = (
+                alpha_current * current_value
+                + (1.0 - alpha_current) * smoothed_value
+                + beta_forecast * surge_delta
+                + surge_bonus
+            )
+
+            if (
+                self._predictive_last_selected_lane is not None
+                and lane != self._predictive_last_selected_lane
+            ):
+                score -= switch_penalty
+                payload["switch_penalty_applied"] = True
+
+            scores[lane] = max(0.0, score)
+            smoothed_lane_counts[lane] = float(smoothed_value)
+            forecast_lane_counts[lane] = float(forecast_value)
+            surge_detected_by_lane[lane] = surge_detected
+            effective_lane_counts[lane] = max(0, int(round(scores[lane])))
+
+        payload.update(
+            {
+                "applied": True,
+                "reason": "predictive_fusion_applied",
+                "smoothed_lane_counts": smoothed_lane_counts,
+                "forecast_lane_counts": forecast_lane_counts,
+                "effective_scores": scores,
+                "effective_lane_counts": effective_lane_counts,
+                "surge_detected_by_lane": surge_detected_by_lane,
+            }
+        )
+        return payload
+
+    def _apply_predictive_stability_guard(
+        self,
+        baseline_decision: dict[str, Any],
+        predictive_control: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if not bool(predictive_control.get("applied", False)):
+            return baseline_decision, predictive_control
+
+        selected_lane = self._lane_from_direction(str(baseline_decision.get("direction", "N")))
+        predictive_control["selected_lane"] = selected_lane
+
+        last_lane = self._predictive_last_selected_lane
+        if not last_lane or selected_lane == last_lane:
+            predictive_control["reason"] = "predictive_baseline_selected"
+            return baseline_decision, predictive_control
+
+        scores = predictive_control.get("effective_scores", {})
+        selected_score = float(scores.get(selected_lane, 0.0))
+        last_score = float(scores.get(last_lane, 0.0))
+        score_gain = selected_score - last_score
+        predictive_control["selected_lane_gain"] = float(score_gain)
+
+        min_hold_cycles = int(cfg.PREDICTIVE_MIN_HOLD_CYCLES)
+        hard_margin = float(cfg.PREDICTIVE_HARD_OVERRIDE_MARGIN)
+        surge_detected_by_lane = predictive_control.get("surge_detected_by_lane", {})
+        selected_surge = bool(surge_detected_by_lane.get(selected_lane, False))
+
+        should_hold = (
+            self._predictive_hold_cycles < min_hold_cycles
+            and not selected_surge
+            and score_gain < hard_margin
+        )
+        if not should_hold:
+            predictive_control["reason"] = (
+                "surge_override"
+                if selected_surge and score_gain >= hard_margin
+                else "predictive_switch_allowed"
+            )
+            return baseline_decision, predictive_control
+
+        duration = int(baseline_decision.get("duration", int(cfg.MIN_GREEN)))
+        duration = max(int(cfg.MIN_GREEN), min(int(cfg.MAX_GREEN), duration))
+        hold_direction = last_lane.replace("lane", "")
+        hold_index = DIRECTIONS.index(hold_direction)
+        held_decision = {
+            **{lane: 0 for lane in LANE_KEYS},
+            last_lane: duration,
+            "direction": hold_direction,
+            "duration": duration,
+            "action": encode_action(hold_index, duration),
+            "mode": "predictive-hold",
+        }
+
+        predictive_control["switch_blocked"] = True
+        predictive_control["reason"] = "predictive_hold"
+        predictive_control["selected_lane"] = last_lane
+        return held_decision, predictive_control
+
+    def _update_predictive_selection(
+        self,
+        selected_lane: str,
+        emergency_detected: bool,
+    ) -> None:
+        if emergency_detected:
+            return
+
+        if self._predictive_last_selected_lane == selected_lane:
+            self._predictive_hold_cycles += 1
+        else:
+            self._predictive_last_selected_lane = selected_lane
+            self._predictive_hold_cycles = 1
 
     def _normalize_fairness_mode(self, fairness_mode: str | None) -> str:
         mode = str(fairness_mode or cfg.FAIRNESS_DEFAULT_MODE).strip().lower()
@@ -341,9 +537,7 @@ class ModelController:
         baseline_decision: dict[str, Any],
         fairness_mode: str,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        baseline_lane = self._lane_from_direction(
-            str(baseline_decision.get("direction", "N"))
-        )
+        baseline_lane = self._lane_from_direction(str(baseline_decision.get("direction", "N")))
         baseline_duration = int(baseline_decision.get("duration", 0))
 
         info = {
@@ -370,7 +564,8 @@ class ModelController:
         missed_threshold = int(cfg.FAIRNESS_MISSED_TURNS_THRESHOLD)
 
         hard_candidates = [
-            lane for lane in eligible
+            lane
+            for lane in eligible
             if self._fairness_state[lane]["wait_seconds"] >= wait_threshold
             and self._fairness_state[lane]["missed_turns"] >= missed_threshold
         ]
@@ -394,12 +589,14 @@ class ModelController:
                     "action": baseline_decision.get("action", 0),
                     "mode": "fairness-hard-override",
                 }
-                info.update({
-                    "applied": True,
-                    "reason": "hard_threshold_breach",
-                    "selected_lane": forced_lane,
-                    "selected_duration": baseline_duration,
-                })
+                info.update(
+                    {
+                        "applied": True,
+                        "reason": "hard_threshold_breach",
+                        "selected_lane": forced_lane,
+                        "selected_duration": baseline_duration,
+                    }
+                )
                 return decision, info
 
             info["reason"] = "hard_threshold_breach_baseline_already_serves"
@@ -407,10 +604,10 @@ class ModelController:
 
         scores: dict[str, float] = {}
         for lane in eligible:
-            wait_ratio = self._fairness_state[lane]["wait_seconds"] / \
-                max(wait_threshold, 1.0)
+            wait_ratio = self._fairness_state[lane]["wait_seconds"] / max(wait_threshold, 1.0)
             missed_ratio = self._fairness_state[lane]["missed_turns"] / max(
-                float(missed_threshold), 1.0)
+                float(missed_threshold), 1.0
+            )
             queue_score = float(lane_counts.get(lane, 0))
             scores[lane] = (
                 queue_score
@@ -423,7 +620,11 @@ class ModelController:
         best_score = scores.get(best_lane, -1.0)
         margin = float(cfg.FAIRNESS_SOFT_OVERRIDE_MARGIN)
 
-        if fairness_mode == "soft" and best_lane != baseline_lane and (best_score - baseline_score) >= margin:
+        if (
+            fairness_mode == "soft"
+            and best_lane != baseline_lane
+            and (best_score - baseline_score) >= margin
+        ):
             direction = best_lane.replace("lane", "")
             decision = {
                 **{lane: 0 for lane in LANE_KEYS},
@@ -433,12 +634,14 @@ class ModelController:
                 "action": baseline_decision.get("action", 0),
                 "mode": "fairness-soft-override",
             }
-            info.update({
-                "applied": True,
-                "reason": "soft_priority_margin",
-                "selected_lane": best_lane,
-                "selected_duration": baseline_duration,
-            })
+            info.update(
+                {
+                    "applied": True,
+                    "reason": "soft_priority_margin",
+                    "selected_lane": best_lane,
+                    "selected_duration": baseline_duration,
+                }
+            )
             return decision, info
 
         info["reason"] = "baseline_retained"
@@ -487,6 +690,9 @@ class ModelController:
             }
             for lane in LANE_KEYS
         }
+        self._predictive_ema_counts = {lane: 0.0 for lane in LANE_KEYS}
+        self._predictive_last_selected_lane = None
+        self._predictive_hold_cycles = 0
 
 
 __all__ = ["ModelController", "DIRECTIONS", "LANE_KEYS"]

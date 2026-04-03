@@ -1,5 +1,10 @@
 # Roadmap
 
+## Project Title
+
+An AI-Driven Intelligent Transportation System for Adaptive Traffic Signal Phase Control and Dynamic Green Corridor Allocation
+Using Edge-Deployed Object Detection Models
+
 ## Project Goal (End-of-Month MVP)
 
 A demo that shows, on **real video or live camera** (even 1 camera is fine):

@@ -35,6 +35,11 @@ body {
   padding: 1.5rem 0 3rem;
 }
 
+.page-shell--wide {
+  width: calc(100% - 2rem);
+  max-width: 1500px;
+}
+
 .hero {
   margin-bottom: 1.25rem;
 }
@@ -71,6 +76,71 @@ h1 {
   margin-top: 0;
   margin-bottom: 0.75rem;
   font-size: 1.1rem;
+}
+
+.synthetic-layout {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr) 360px;
+  gap: 0.95rem;
+  align-items: start;
+}
+
+.synthetic-layout > .panel {
+  padding: 0.75rem;
+}
+
+.control-sidebar {
+  position: sticky;
+  top: 0.85rem;
+}
+
+.control-sidebar .upload-grid {
+  grid-template-columns: 1fr;
+}
+
+.control-sidebar .upload-card {
+  padding: 0.52rem;
+}
+
+.control-sidebar .actions {
+  flex-direction: column;
+}
+
+.sim-main {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.results-panel {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.results-panel .decision-grid div,
+.results-panel .model-card {
+  padding: 0.55rem;
+}
+
+.telemetry-toggle {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 0.2rem 0.5rem 0.5rem;
+}
+
+.telemetry-toggle > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--accent-2);
+  padding: 0.45rem 0;
+}
+
+.compact-phase-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.queue-inline {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .demo-grid {
@@ -452,5 +522,36 @@ button:disabled {
 
   .actions {
     flex-direction: column;
+  }
+
+  .synthetic-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .page-shell--wide {
+    width: min(1080px, calc(100% - 1rem));
+  }
+
+  .control-sidebar {
+    position: static;
+  }
+
+  .compact-phase-grid,
+  .queue-inline {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 781px) and (max-width: 1200px) {
+  .synthetic-layout {
+    grid-template-columns: 270px minmax(0, 1fr);
+  }
+
+  .results-panel {
+    grid-column: 1 / -1;
+  }
+
+  .page-shell--wide {
+    width: calc(100% - 1.25rem);
   }
 }

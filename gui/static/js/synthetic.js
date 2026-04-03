@@ -19,6 +19,8 @@ const seedNode = document.getElementById("seed");
 const ambulanceLaneNode = document.getElementById("ambulanceLane");
 const fairnessModeNode = document.getElementById("fairnessMode");
 const autoModeNode = document.getElementById("autoMode");
+const controllerModeNode = document.getElementById("controllerMode");
+const presentationModeNode = document.getElementById("presentationMode");
 
 const formMessage = document.getElementById("formMessage");
 const simStatus = document.getElementById("simStatus");
@@ -44,6 +46,28 @@ const phaseLaneNode = document.getElementById("phaseLane");
 const phaseSignalNode = document.getElementById("phaseSignal");
 const phaseRemainingNode = document.getElementById("phaseRemaining");
 
+const cmpBaselineWaitNode = document.getElementById("cmpBaselineWait");
+const cmpBaselineMaxQueueNode = document.getElementById("cmpBaselineMaxQueue");
+const cmpBaselineClearedNode = document.getElementById("cmpBaselineCleared");
+const cmpAdaptiveWaitNode = document.getElementById("cmpAdaptiveWait");
+const cmpAdaptiveMaxQueueNode = document.getElementById("cmpAdaptiveMaxQueue");
+const cmpAdaptiveClearedNode = document.getElementById("cmpAdaptiveCleared");
+const cmpGainWaitNode = document.getElementById("cmpGainWait");
+const cmpGainMaxQueueNode = document.getElementById("cmpGainMaxQueue");
+const cmpGainClearedNode = document.getElementById("cmpGainCleared");
+const cmpMethodNoteNode = document.getElementById("cmpMethodNote");
+const cmpHorizonNode = document.getElementById("cmpHorizon");
+
+const predictiveAppliedNode = document.getElementById("predictiveApplied");
+const predictiveReasonNode = document.getElementById("predictiveReason");
+const predictiveSelectionNode = document.getElementById("predictiveSelection");
+const predictiveLaneSummaryNode = document.getElementById("predictiveLaneSummary");
+
+const cyclePanelNode = document.getElementById("cyclePanel");
+const fairnessPanelNode = document.getElementById("fairnessPanel");
+const predictivePanelNode = document.getElementById("predictivePanel");
+const eventPanelNode = document.getElementById("eventPanel");
+
 const canvas = document.getElementById("intersectionCanvas");
 const ctx = canvas.getContext("2d");
 
@@ -54,6 +78,8 @@ let syntheticTick = 0;
 let autoFlowTimer = 0;
 let autoFlowRunning = false;
 let autoTickBusy = false;
+let clearingModeActive = false;
+let clearingScheduled = false;
 
 const world = {
   counts: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
@@ -104,6 +130,14 @@ function addEvent(text) {
   eventLogNode.textContent = events.join("\n");
 }
 
+function getTotalTrafficCount() {
+  return laneKeys.reduce((sum, lane) => sum + (world.counts[lane] || 0), 0);
+}
+
+function shouldContinueClearing() {
+  return clearingModeActive && getTotalTrafficCount() > 0 && !autoFlowRunning;
+}
+
 function renderCounts() {
   laneKeys.forEach((lane) => {
     const node = document.getElementById(`count-${lane}`);
@@ -134,6 +168,65 @@ function renderMetrics(metrics = {}) {
   metricImprovementNode.textContent = Number.isFinite(metrics.improvement_pct)
     ? `${metrics.improvement_pct}%`
     : "-";
+}
+
+function formatPercent(value) {
+  return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}%` : "-";
+}
+
+function renderComparison(comparison = {}) {
+  const baseline = comparison.baseline || {};
+  const adaptive = comparison.adaptive || {};
+  const gains = comparison.improvements || {};
+  const horizon = Number(comparison.horizon_sec || 0);
+
+  if (cmpBaselineWaitNode) {
+    cmpBaselineWaitNode.textContent = Number.isFinite(Number(baseline.avg_wait_proxy_seconds))
+      ? `wait ${baseline.avg_wait_proxy_seconds}s`
+      : "wait -";
+  }
+  if (cmpBaselineMaxQueueNode) {
+    cmpBaselineMaxQueueNode.textContent = Number.isFinite(Number(baseline.max_lane_queue_proxy))
+      ? `max queue ${baseline.max_lane_queue_proxy}`
+      : "max queue -";
+  }
+  if (cmpBaselineClearedNode) {
+    cmpBaselineClearedNode.textContent = Number.isFinite(Number(baseline.vehicles_cleared_in_horizon))
+      ? `cleared ${baseline.vehicles_cleared_in_horizon}`
+      : "cleared -";
+  }
+
+  if (cmpAdaptiveWaitNode) {
+    cmpAdaptiveWaitNode.textContent = Number.isFinite(Number(adaptive.avg_wait_proxy_seconds))
+      ? `wait ${adaptive.avg_wait_proxy_seconds}s`
+      : "wait -";
+  }
+  if (cmpAdaptiveMaxQueueNode) {
+    cmpAdaptiveMaxQueueNode.textContent = Number.isFinite(Number(adaptive.max_lane_queue_proxy))
+      ? `max queue ${adaptive.max_lane_queue_proxy}`
+      : "max queue -";
+  }
+  if (cmpAdaptiveClearedNode) {
+    cmpAdaptiveClearedNode.textContent = Number.isFinite(Number(adaptive.vehicles_cleared_in_horizon))
+      ? `cleared ${adaptive.vehicles_cleared_in_horizon}`
+      : "cleared -";
+  }
+
+  if (cmpGainWaitNode) {
+    cmpGainWaitNode.textContent = `wait gain ${formatPercent(gains.avg_wait_proxy_pct)}`;
+  }
+  if (cmpGainMaxQueueNode) {
+    cmpGainMaxQueueNode.textContent = `queue gain ${formatPercent(gains.max_lane_queue_proxy_pct)}`;
+  }
+  if (cmpGainClearedNode) {
+    cmpGainClearedNode.textContent = `cleared gain ${formatPercent(gains.vehicles_cleared_in_horizon_pct)}`;
+  }
+  if (cmpMethodNoteNode) {
+    cmpMethodNoteNode.textContent = comparison.method_note || "-";
+  }
+  if (cmpHorizonNode) {
+    cmpHorizonNode.textContent = horizon > 0 ? `horizon ${horizon}s` : "-";
+  }
 }
 
 function renderFairness(fairness = {}) {
@@ -169,6 +262,43 @@ function renderCycleMeta(sim = {}) {
   }
   if (dqnReranValueNode) {
     dqnReranValueNode.textContent = sim.dqn_reran_this_tick ? "YES" : "NO";
+  }
+}
+
+function renderPredictive(predictive = {}) {
+  if (predictiveAppliedNode) {
+    predictiveAppliedNode.textContent = predictive.applied ? "Applied: YES" : "Applied: NO";
+  }
+  if (predictiveReasonNode) {
+    predictiveReasonNode.textContent = `Reason: ${predictive.reason || "-"}`;
+  }
+  if (predictiveSelectionNode) {
+    const selected = predictive.selected_lane || "-";
+    const gain = Number(predictive.selected_lane_gain || 0).toFixed(2);
+    predictiveSelectionNode.textContent = `Selected: ${selected} (gain ${gain})`;
+  }
+  if (predictiveLaneSummaryNode) {
+    const effective = predictive.effective_lane_counts || {};
+    const text = laneKeys
+      .map((lane) => `${laneLabels[lane][0]}:${Number(effective[lane] || 0)}`)
+      .join(" | ");
+    predictiveLaneSummaryNode.textContent = text || "-";
+  }
+}
+
+function applyPresentationMode(mode) {
+  const resolved = mode || "demo";
+  if (cyclePanelNode) {
+    cyclePanelNode.open = resolved === "debug";
+  }
+  if (fairnessPanelNode) {
+    fairnessPanelNode.open = resolved === "technical" || resolved === "debug";
+  }
+  if (predictivePanelNode) {
+    predictivePanelNode.open = resolved === "technical" || resolved === "debug";
+  }
+  if (eventPanelNode) {
+    eventPanelNode.open = resolved === "debug";
   }
 }
 
@@ -211,6 +341,21 @@ function nextLaneWithCars() {
     }
   }
   return null;
+}
+
+function pickBusiestLaneWithCars(excludeLane = null) {
+  const candidates = laneKeys.filter(
+    (lane) => lane !== excludeLane && Number(world.counts[lane] || 0) > 0
+  );
+  if (!candidates.length) {
+    return null;
+  }
+  return candidates.reduce((best, lane) => {
+    if (!best) return lane;
+    return Number(world.counts[lane] || 0) > Number(world.counts[best] || 0)
+      ? lane
+      : best;
+  }, null);
 }
 
 function laneGeometry() {
@@ -368,6 +513,19 @@ function enterGreen(lane) {
   updatePhaseText();
 }
 
+function enterDrift() {
+  world.signal = "red";
+  world.activeLane = null;
+  world.phaseType = "drift";
+  world.phaseTimeMs = 3000;
+  if (clearingModeActive) {
+    simStatus.textContent = "Auto-clearing: preparing next cycle...";
+  } else {
+    simStatus.textContent = "Waiting for next controller decision...";
+  }
+  updatePhaseText();
+}
+
 function enterYellow() {
   world.signal = "yellow";
   world.phaseType = "yellow";
@@ -377,11 +535,14 @@ function enterYellow() {
 }
 
 function completeSimulation() {
+  clearingModeActive = false;
+  clearingScheduled = false;
   world.signal = "red";
   world.activeLane = null;
   world.phaseType = "done";
   world.finished = true;
   simStatus.textContent = "Simulation finished: all lanes cleared.";
+  setMessage("All traffic cleared successfully!");
   updatePhaseText();
 }
 
@@ -416,11 +577,32 @@ function tickPhase(dtMs) {
   } else if (world.phaseType === "yellow") {
     world.phaseTimeMs -= dtMs;
     if (world.phaseTimeMs <= 0) {
-      const nextLane = nextLaneWithCars();
+      const nextLane = pickBusiestLaneWithCars(world.activeLane);
       if (nextLane) {
-        enterGreen(nextLane);
+        enterDrift();
       } else {
         completeSimulation();
+      }
+    }
+  } else if (world.phaseType === "drift") {
+    world.phaseTimeMs -= dtMs;
+    if (world.phaseTimeMs <= 0) {
+      world.phaseTimeMs = 0;
+      
+      if (shouldContinueClearing() && !clearingScheduled) {
+        clearingScheduled = true;
+        setTimeout(async () => {
+          clearingScheduled = false;
+          if (shouldContinueClearing()) {
+            try {
+              setMessage("Auto-clearing traffic...");
+              await runSyntheticCycle();
+            } catch (error) {
+              clearingModeActive = false;
+              setMessage(error.message || "Auto-clearing failed", true);
+            }
+          }
+        }, 500);
       }
     }
   }
@@ -481,7 +663,9 @@ function startSimulation(payload, source = "synthetic") {
 
   addEvent(
     `${source}: ${decision.direction} selected for ${decision.duration}s` +
-      ` | source=${sim.control_source || "unknown"}`
+      ` | source=${sim.control_source || "unknown"}` +
+      ` | scope=${sim.decision_scope || "single_lane"}` +
+      (sim.lane_repeat_blocked ? ` | scheduler=${sim.scheduler_reason || "no_consecutive_same_lane"}` : "")
   );
   renderCounts();
   enterGreen(sim.selected_lane);
@@ -490,7 +674,9 @@ function startSimulation(payload, source = "synthetic") {
   }
   const activeLabel = world.activeLane ? laneLabels[world.activeLane] : "-";
   simStatus.textContent =
-    `Cycle locked on ${activeLabel}. Models refreshed every ${sim.model_refresh_sec || sim.tick_interval_sec || 3}s.`;
+    `Cycle locked on ${activeLabel}. Models refreshed every ${sim.model_refresh_sec || sim.tick_interval_sec || 3}s.` +
+    ` Non-active lanes wait for next decision.` +
+    (sim.lane_repeat_blocked ? ` Scheduler enforced lane rotation.` : "");
   drawScene();
   renderCycleMeta(sim);
 
@@ -524,7 +710,8 @@ function applySyntheticTick(payload, source = "synthetic") {
 
   const activeLabel = world.activeLane ? laneLabels[world.activeLane] : "-";
   simStatus.textContent =
-    `Cycle locked on ${activeLabel}. Models refreshed every ${sim.model_refresh_sec || sim.tick_interval_sec || 3}s.`;
+    `Cycle locked on ${activeLabel}. Models refreshed every ${sim.model_refresh_sec || sim.tick_interval_sec || 3}s.` +
+    ` Non-active lanes wait for next decision.`;
 
   renderCounts();
   updatePhaseText();
@@ -534,6 +721,8 @@ function applySyntheticTick(payload, source = "synthetic") {
 
 function resetWorld() {
   runToken = 0;
+  clearingModeActive = false;
+  clearingScheduled = false;
   if (animationId) window.cancelAnimationFrame(animationId);
   animationId = 0;
   lastTs = 0;
@@ -558,6 +747,8 @@ function resetWorld() {
   events.length = 0;
   eventLogNode.textContent = "Events will appear here...";
   renderMetrics({});
+  renderComparison({});
+  renderPredictive({});
   renderCounts();
   updatePhaseText();
   drawScene();
@@ -572,6 +763,7 @@ async function runSyntheticCycle() {
     tick: syntheticTick,
     current_counts: world.counts,
     fairness_mode: fairnessModeNode.value,
+    controller_mode: controllerModeNode ? controllerModeNode.value : "compare",
   };
 
   const response = await fetch("/api/synthetic_cycle", {
@@ -586,6 +778,8 @@ async function runSyntheticCycle() {
 
   renderMetrics(payload.congestion_metrics || {});
   renderFairness(payload.fairness || payload.model_outputs?.fairness || {});
+  renderComparison(payload.congestion_metrics?.comparison || {});
+  renderPredictive(payload.model_outputs?.predictive_control || {});
   applySyntheticTick(payload, "synthetic_cycle");
   syntheticTick += 1;
 }
@@ -607,6 +801,7 @@ async function spawnAmbulance() {
 
   addEvent(`ambulance_spawn: ${payload.scenario?.lane || "auto"}`);
   renderFairness(payload.fairness || payload.model_outputs?.fairness || {});
+  renderPredictive(payload.model_outputs?.predictive_control || {});
   applySyntheticTick(payload, "ambulance_spawn");
 }
 
@@ -660,10 +855,16 @@ form.addEventListener("submit", async (event) => {
   stepBtn.disabled = true;
 
   runToken = Date.now();
+  clearingModeActive = true;
   try {
     await runSyntheticCycle();
-    setMessage("Synthetic cycle generated.");
+    if (getTotalTrafficCount() === 0) {
+      setMessage("Synthetic cycle generated and cleared.");
+    } else {
+      setMessage("Synthetic cycle generated. Auto-clearing...");
+    }
   } catch (error) {
+    clearingModeActive = false;
     setMessage(error.message || "Unexpected error", true);
   } finally {
     stepBtn.disabled = false;
@@ -682,6 +883,8 @@ autoBtn.addEventListener("click", async () => {
     return;
   }
 
+  clearingModeActive = false;
+  clearingScheduled = false;
   setMessage("Starting auto flow...");
   try {
     await runSyntheticCycle();
@@ -699,6 +902,20 @@ autoModeNode.addEventListener("change", () => {
   }
 });
 
+if (presentationModeNode) {
+  presentationModeNode.addEventListener("change", () => {
+    applyPresentationMode(presentationModeNode.value);
+  });
+}
+
+if (controllerModeNode) {
+  controllerModeNode.addEventListener("change", () => {
+    syntheticTick = 0;
+    stopAutoFlow();
+    setMessage("Controller mode changed. Next cycle starts fresh.");
+  });
+}
+
 spawnBtn.addEventListener("click", async () => {
   setMessage("Spawning ambulance and forcing corridor preemption...");
   spawnBtn.disabled = true;
@@ -714,6 +931,8 @@ spawnBtn.addEventListener("click", async () => {
 
 resetBtn.addEventListener("click", () => {
   stopAutoFlow();
+  clearingModeActive = false;
+  clearingScheduled = false;
   syntheticTick = 0;
   resetSyntheticRuntime()
     .catch(() => {
@@ -732,3 +951,6 @@ resetBtn.addEventListener("click", () => {
 resetWorld();
 intensityValueNode.textContent = `${Number(intensityNode.value).toFixed(1)}x`;
 renderFairness({});
+renderComparison({});
+renderPredictive({});
+applyPresentationMode(presentationModeNode ? presentationModeNode.value : "demo");
