@@ -78,6 +78,8 @@ let syntheticTick = 0;
 let autoFlowTimer = 0;
 let autoFlowRunning = false;
 let autoTickBusy = false;
+let clearingModeActive = false;
+let clearingScheduled = false;
 
 const world = {
   counts: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
@@ -126,6 +128,14 @@ function addEvent(text) {
     events.pop();
   }
   eventLogNode.textContent = events.join("\n");
+}
+
+function getTotalTrafficCount() {
+  return laneKeys.reduce((sum, lane) => sum + (world.counts[lane] || 0), 0);
+}
+
+function shouldContinueClearing() {
+  return clearingModeActive && getTotalTrafficCount() > 0 && !autoFlowRunning;
 }
 
 function renderCounts() {
@@ -508,7 +518,11 @@ function enterDrift() {
   world.activeLane = null;
   world.phaseType = "drift";
   world.phaseTimeMs = 3000;
-  simStatus.textContent = "Waiting for next controller decision...";
+  if (clearingModeActive) {
+    simStatus.textContent = "Auto-clearing: preparing next cycle...";
+  } else {
+    simStatus.textContent = "Waiting for next controller decision...";
+  }
   updatePhaseText();
 }
 
@@ -521,11 +535,14 @@ function enterYellow() {
 }
 
 function completeSimulation() {
+  clearingModeActive = false;
+  clearingScheduled = false;
   world.signal = "red";
   world.activeLane = null;
   world.phaseType = "done";
   world.finished = true;
   simStatus.textContent = "Simulation finished: all lanes cleared.";
+  setMessage("All traffic cleared successfully!");
   updatePhaseText();
 }
 
@@ -571,6 +588,22 @@ function tickPhase(dtMs) {
     world.phaseTimeMs -= dtMs;
     if (world.phaseTimeMs <= 0) {
       world.phaseTimeMs = 0;
+      
+      if (shouldContinueClearing() && !clearingScheduled) {
+        clearingScheduled = true;
+        setTimeout(async () => {
+          clearingScheduled = false;
+          if (shouldContinueClearing()) {
+            try {
+              setMessage("Auto-clearing traffic...");
+              await runSyntheticCycle();
+            } catch (error) {
+              clearingModeActive = false;
+              setMessage(error.message || "Auto-clearing failed", true);
+            }
+          }
+        }, 500);
+      }
     }
   }
 
@@ -688,6 +721,8 @@ function applySyntheticTick(payload, source = "synthetic") {
 
 function resetWorld() {
   runToken = 0;
+  clearingModeActive = false;
+  clearingScheduled = false;
   if (animationId) window.cancelAnimationFrame(animationId);
   animationId = 0;
   lastTs = 0;
@@ -820,10 +855,16 @@ form.addEventListener("submit", async (event) => {
   stepBtn.disabled = true;
 
   runToken = Date.now();
+  clearingModeActive = true;
   try {
     await runSyntheticCycle();
-    setMessage("Synthetic cycle generated.");
+    if (getTotalTrafficCount() === 0) {
+      setMessage("Synthetic cycle generated and cleared.");
+    } else {
+      setMessage("Synthetic cycle generated. Auto-clearing...");
+    }
   } catch (error) {
+    clearingModeActive = false;
     setMessage(error.message || "Unexpected error", true);
   } finally {
     stepBtn.disabled = false;
@@ -842,6 +883,8 @@ autoBtn.addEventListener("click", async () => {
     return;
   }
 
+  clearingModeActive = false;
+  clearingScheduled = false;
   setMessage("Starting auto flow...");
   try {
     await runSyntheticCycle();
@@ -888,6 +931,8 @@ spawnBtn.addEventListener("click", async () => {
 
 resetBtn.addEventListener("click", () => {
   stopAutoFlow();
+  clearingModeActive = false;
+  clearingScheduled = false;
   syntheticTick = 0;
   resetSyntheticRuntime()
     .catch(() => {
