@@ -26,14 +26,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from control.signal_controller import SignalController  # noqa: E402
 from training.DQN.environment import (  # noqa: E402
-    MIN_GREEN,
+    ACTION_SIZE,
     MAX_GREEN,
+    MIN_GREEN,
     decode_action,
     encode_action,
-    ACTION_SIZE,
 )
-from control.signal_controller import SignalController  # noqa: E402
 
 try:
     import config as cfg
@@ -46,6 +46,27 @@ except (ImportError, AttributeError):
 
 
 # ── validation helper ──────────────────────────────────────────────────────────
+
+def _validate_action_contract(result: dict) -> list[str]:
+    errors: list[str] = []
+    action = result["action"]
+    if not (0 <= action < ACTION_SIZE):
+        errors.append(f"action {action} out of range [0, {ACTION_SIZE-1}]")
+        return errors
+
+    d_idx, d_dur = decode_action(action)
+    if DIR_LABELS[d_idx] != result["direction"]:
+        errors.append(
+            f"action {action} decodes to direction {DIR_LABELS[d_idx]} "
+            f"but result says {result['direction']}"
+        )
+    if d_dur != result["duration"]:
+        errors.append(
+            f"action {action} decodes to duration {d_dur} "
+            f"but result says {result['duration']}"
+        )
+    return errors
+
 
 def _validate(result: dict, lane_counts: dict[str, int]) -> list[str]:
     """Return a list of error strings (empty = all OK)."""
@@ -91,22 +112,8 @@ def _validate(result: dict, lane_counts: dict[str, int]) -> list[str]:
             f"but duration={dur}"
         )
 
-    # 6. action decodes consistently
-    action = result["action"]
-    if not (0 <= action < ACTION_SIZE):
-        errors.append(f"action {action} out of range [0, {ACTION_SIZE-1}]")
-    else:
-        d_idx, d_dur = decode_action(action)
-        if DIR_LABELS[d_idx] != result["direction"]:
-            errors.append(
-                f"action {action} decodes to direction {DIR_LABELS[d_idx]} "
-                f"but result says {result['direction']}"
-            )
-        if d_dur != dur:
-            errors.append(
-                f"action {action} decodes to duration {d_dur} "
-                f"but result says {dur}"
-            )
+    # 6. action-direction-duration contract is consistent
+    errors.extend(_validate_action_contract(result))
 
     return errors
 
@@ -176,7 +183,7 @@ def run_tests(weights_path: Path | None = None) -> None:
         )
 
     # ── duration range verification ────────────────────────────────────────────
-    print(f"\n  Checking duration range across 50 random inputs …")
+    print("\n  Checking duration range across 50 random inputs …")
     import numpy as np
     rng = np.random.default_rng(0)
     range_ok = True
@@ -195,7 +202,7 @@ def run_tests(weights_path: Path | None = None) -> None:
         passed += 1
 
     # ── encode/decode roundtrip ────────────────────────────────────────────────
-    print(f"\n  Checking encode/decode roundtrip for all 224 actions …")
+    print("\n  Checking encode/decode roundtrip for all 224 actions …")
     roundtrip_ok = True
     for a in range(ACTION_SIZE):
         d, dur = decode_action(a)
@@ -205,11 +212,11 @@ def run_tests(weights_path: Path | None = None) -> None:
             failed += 1
             break
     if roundtrip_ok:
-        print(f"  ✓  All 224 actions encode ↔ decode correctly")
+        print("  ✓  All 224 actions encode ↔ decode correctly")
         passed += 1
 
     # ── proportional fallback ──────────────────────────────────────────────────
-    print(f"\n  Testing proportional fallback (no weights file) …")
+    print("\n  Testing proportional fallback (no weights file) …")
     sc_fb = SignalController(
         weights_path=ROOT / "models" / "__no_weights__.pt")
     result = sc_fb.decide({"laneN": 8, "laneS": 2, "laneE": 5, "laneW": 1})

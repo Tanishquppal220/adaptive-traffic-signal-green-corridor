@@ -17,6 +17,25 @@ A demo that shows, on **real video or live camera** (even 1 camera is fine):
 
 You can still keep LSTM + DQN in the roadmap, but they are **not required for a solid month MVP**.
 
+## Running The App (Secure Defaults)
+
+By default, the app now starts with:
+
+- host: `127.0.0.1`
+- debug: `False`
+
+Run locally:
+
+```bash
+uv run python main.py
+```
+
+Only for trusted local-network demos, explicitly opt in:
+
+```bash
+FLASK_HOST=0.0.0.0 FLASK_DEBUG=1 uv run python main.py
+```
+
 ---
 
 ## Week 1 (Days 1–7): Repo setup + dataset + baseline detection
@@ -96,6 +115,9 @@ You can still keep LSTM + DQN in the roadmap, but they are **not required for a 
 **Option B (vision): ambulance detection**
 
 - If dataset lacks ambulances, use pretrained + quick fine-tune with a small custom ambulance set.
+- Runtime preemption policy is class-id based for the retrained emergency model: only class IDs `3` and `5` trigger corridor preemption.
+- Non-target classes remain non-emergency and must not trigger preemption.
+- Optional calibrated threshold artifact path: `models/emergency_classifier_threshold.json`.
 
 **Option C (audio): siren detection**
 

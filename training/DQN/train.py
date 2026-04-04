@@ -30,18 +30,18 @@ from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 try:
-    from .environment import TrafficEnv, ACTION_SIZE, decode_action
-    from .replay_buffer import ReplayBuffer
     from .dqn_agent import DQNAgent
+    from .environment import ACTION_SIZE, TrafficEnv, decode_action
+    from .replay_buffer import ReplayBuffer
 except ImportError:
-    from environment import TrafficEnv, ACTION_SIZE, decode_action
-    from replay_buffer import ReplayBuffer
     from dqn_agent import DQNAgent
+    from environment import ACTION_SIZE, TrafficEnv, decode_action
+    from replay_buffer import ReplayBuffer
 
 # ── config (with safe fallback if config.py isn't available) ──────────────────
 try:
@@ -81,7 +81,7 @@ def train(
     save_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"\n{'─'*65}")
-    print(f"  DQN Traffic Signal Optimizer — Training")
+    print("  DQN Traffic Signal Optimizer — Training")
     print(f"  action_size  = {ACTION_SIZE}  (4 directions × 56 durations)")
     print(f"  device       = {device}")
     print(f"  total_steps  = {total_steps:,}")

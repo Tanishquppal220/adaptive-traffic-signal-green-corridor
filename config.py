@@ -4,7 +4,26 @@ All subsystems (detection, prediction, optimization, audio, ambulance)
 should import shared constants from here instead of duplicating values.
 """
 
+import os
 from pathlib import Path
+
+
+def _env_bool(var_name: str, default: bool) -> bool:
+    raw_value = os.getenv(var_name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(var_name: str, default: int) -> int:
+    raw_value = os.getenv(var_name)
+    if raw_value is None:
+        return default
+    try:
+        return int(raw_value)
+    except ValueError:
+        return default
+
 
 # ── Paths ────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -31,9 +50,9 @@ CAMERA_INDEX: int = 0
 CAMERA_BUFFER_SIZE: int = 1
 
 # ── Flask / GUI ──────────────────────────────────────────────────────────────
-FLASK_HOST: str = "0.0.0.0"
-FLASK_PORT: int = 5000
-FLASK_DEBUG: bool = True
+FLASK_HOST: str = os.getenv("FLASK_HOST", "127.0.0.1")
+FLASK_PORT: int = _env_int("FLASK_PORT", 5000)
+FLASK_DEBUG: bool = _env_bool("FLASK_DEBUG", False)
 
 # ── RL Signal Control ────────────────────────────────────────────────────────
 # ── Signal Timing ─────────────────────────────────────────────────────────────
@@ -51,7 +70,8 @@ LANE_TO_DIRECTION: dict[str, str] = {
     "laneE": "E",
     "laneW": "W",
 }
-DIRECTION_TO_LANE: dict[str, str] = {v: k for k, v in LANE_TO_DIRECTION.items()}
+DIRECTION_TO_LANE: dict[str, str] = {
+    v: k for k, v in LANE_TO_DIRECTION.items()}
 
 # ── DQN Action/State Contracts ───────────────────────────────────────────────
 N_DIRECTIONS = len(DIRECTIONS)
@@ -94,7 +114,10 @@ DENSITY_MAX_CLIP = 50.0
 
 # ── Emergency Model Runtime ───────────────────────────────────────────────────
 EMERGENCY_CONFIDENCE_THRESHOLD = 0.5
-EMERGENCY_LABEL_KEYWORDS: tuple[str, ...] = ("ambulance", "fire", "police")
+EMERGENCY_TARGET_CLASS_IDS: tuple[int, ...] = (3, 5)
+EMERGENCY_TARGET_LABEL: str = "ambulance"
+EMERGENCY_LABEL_KEYWORDS: tuple[str, ...] = ("ambulance",)
+EMERGENCY_THRESHOLD_PATH = MODELS_DIR / "emergency_classifier_threshold.json"
 
 # Emergency corridor timing policy
 # Applied duration during emergency: min(dqn_duration + buffer, cap)
@@ -114,6 +137,11 @@ FAIRNESS_SOFT_MISSED_WEIGHT: float = 0.45
 FAIRNESS_SOFT_OVERRIDE_MARGIN: float = 2.0
 
 # Synthetic runtime tuning
+SYNTHETIC_INTENSITY_MIN: float = 0.2
+SYNTHETIC_INTENSITY_MAX: float = 3.0
+SYNTHETIC_SEED_MIN: int = 0
+SYNTHETIC_TICK_MIN: int = 0
+
 LOW_TRAFFIC_QUEUE_THRESHOLD: int = 24
 LOW_TRAFFIC_MIN_GREEN_FLOOR: int = 7
 LOW_TRAFFIC_PER_VEHICLE_BONUS: int = 1

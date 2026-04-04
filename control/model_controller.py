@@ -38,7 +38,8 @@ class ModelController:
         self._emergency_classifier = EmergencyClassifier()
         self._density_predictor = DensityPredictor()
         self._signal_controller = SignalController(
-            weights_path=dqn_weights_path or Path("models") / "dqn_signal_optimizer.pt",
+            weights_path=dqn_weights_path or Path(
+                "models") / "dqn_signal_optimizer.pt",
             device=device,
         )
         self._last_lane_counts = {k: 0 for k in LANE_KEYS}
@@ -112,6 +113,7 @@ class ModelController:
                 candidate = {
                     **emergency,
                     "lane": lane,
+                    "emergency_lane": lane,
                     "direction": lane.replace("lane", ""),
                 }
                 emergency_candidates.append(candidate)
@@ -215,7 +217,8 @@ class ModelController:
                 predictive_control=predictive_control,
             )
             self._update_predictive_selection(
-                self._lane_from_direction(str(baseline_decision.get("direction", "N"))),
+                self._lane_from_direction(
+                    str(baseline_decision.get("direction", "N"))),
                 emergency_detected=emergency_detected,
             )
 
@@ -241,11 +244,15 @@ class ModelController:
         }
 
         if emergency_detected:
-            emergency_direction = str(
-                emergency.get("direction")
-                or top_direction(lane_counts_to_direction_counts(lane_counts))
-            )
-            emergency_lane = DIRECTION_TO_LANE.get(emergency_direction, "laneN")
+            emergency_lane = str(emergency.get("emergency_lane") or "")
+            if emergency_lane not in DIRECTION_TO_LANE.values():
+                emergency_direction = str(
+                    emergency.get("direction")
+                    or top_direction(lane_counts_to_direction_counts(lane_counts))
+                )
+                emergency_lane = DIRECTION_TO_LANE.get(
+                    emergency_direction, "laneN")
+            emergency_direction = emergency_lane.replace("lane", "")
             base_duration = int(baseline_decision.get("duration", 0))
             queue_in_emergency_lane = int(lane_counts.get(emergency_lane, 0))
 
@@ -266,7 +273,7 @@ class ModelController:
                 emergency_lane: emergency_duration,
                 "direction": emergency_direction,
                 "duration": emergency_duration,
-                "action": decision.get("action", 0),
+                "action": self._encode_decision_action(emergency_direction, emergency_duration),
                 "mode": "emergency-override",
             }
 
@@ -290,7 +297,8 @@ class ModelController:
                     "reason": "cycle_lock_reuse",
                     "selected_lane": locked_control.get("selected_lane")
                     or self._lane_from_direction(
-                        str(locked_control.get("decision", {}).get("direction", "N"))
+                        str(locked_control.get(
+                            "decision", {}).get("direction", "N"))
                     ),
                     "selected_duration": int(locked_control.get("decision", {}).get("duration", 0)),
                     "baseline_lane": self._lane_from_direction(
@@ -353,7 +361,8 @@ class ModelController:
         emergency_detected: bool,
         cycle_locked: bool,
     ) -> dict[str, Any]:
-        raw_counts = {lane: int(lane_counts.get(lane, 0)) for lane in LANE_KEYS}
+        raw_counts = {lane: int(lane_counts.get(lane, 0))
+                      for lane in LANE_KEYS}
         payload: dict[str, Any] = {
             "enabled": bool(cfg.PREDICTIVE_CONTROL_ENABLED),
             "applied": False,
@@ -381,7 +390,8 @@ class ModelController:
             payload["reason"] = "bypassed_during_emergency"
             return payload
 
-        predictions = density.get("predictions", {}) if isinstance(density, dict) else {}
+        predictions = density.get(
+            "predictions", {}) if isinstance(density, dict) else {}
         alpha_current = float(cfg.PREDICTIVE_ALPHA_CURRENT)
         beta_forecast = float(cfg.PREDICTIVE_BETA_FORECAST)
         ema_alpha = float(cfg.PREDICTIVE_EMA_ALPHA)
@@ -400,13 +410,16 @@ class ModelController:
             current_value = float(raw_counts[lane])
             forecast_value = float(predictions.get(direction, current_value))
 
-            prev_ema = float(self._predictive_ema_counts.get(lane, current_value))
-            smoothed_value = ema_alpha * current_value + (1.0 - ema_alpha) * prev_ema
+            prev_ema = float(
+                self._predictive_ema_counts.get(lane, current_value))
+            smoothed_value = ema_alpha * current_value + \
+                (1.0 - ema_alpha) * prev_ema
             self._predictive_ema_counts[lane] = smoothed_value
 
             surge_delta = max(0.0, forecast_value - current_value)
             surge_detected = surge_delta >= surge_threshold
-            surge_bonus = min(surge_bonus_cap, surge_delta) if surge_detected else 0.0
+            surge_bonus = min(
+                surge_bonus_cap, surge_delta) if surge_detected else 0.0
 
             score = (
                 alpha_current * current_value
@@ -449,7 +462,8 @@ class ModelController:
         if not bool(predictive_control.get("applied", False)):
             return baseline_decision, predictive_control
 
-        selected_lane = self._lane_from_direction(str(baseline_decision.get("direction", "N")))
+        selected_lane = self._lane_from_direction(
+            str(baseline_decision.get("direction", "N")))
         predictive_control["selected_lane"] = selected_lane
 
         last_lane = self._predictive_last_selected_lane
@@ -465,7 +479,8 @@ class ModelController:
 
         min_hold_cycles = int(cfg.PREDICTIVE_MIN_HOLD_CYCLES)
         hard_margin = float(cfg.PREDICTIVE_HARD_OVERRIDE_MARGIN)
-        surge_detected_by_lane = predictive_control.get("surge_detected_by_lane", {})
+        surge_detected_by_lane = predictive_control.get(
+            "surge_detected_by_lane", {})
         selected_surge = bool(surge_detected_by_lane.get(selected_lane, False))
 
         should_hold = (
@@ -519,6 +534,18 @@ class ModelController:
             return str(cfg.FAIRNESS_DEFAULT_MODE)
         return mode
 
+    def _encode_decision_action(self, direction: str, duration: int) -> int:
+        resolved_direction = str(direction or "N").strip().upper()
+        if resolved_direction not in DIRECTIONS:
+            resolved_direction = "N"
+
+        clamped_duration = max(
+            int(cfg.MIN_GREEN),
+            min(int(cfg.MAX_GREEN), int(duration)),
+        )
+        direction_index = DIRECTIONS.index(resolved_direction)
+        return encode_action(direction_index, clamped_duration)
+
     def _lane_from_direction(self, direction: str) -> str:
         return DIRECTION_TO_LANE.get(direction, "laneN")
 
@@ -537,7 +564,8 @@ class ModelController:
         baseline_decision: dict[str, Any],
         fairness_mode: str,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        baseline_lane = self._lane_from_direction(str(baseline_decision.get("direction", "N")))
+        baseline_lane = self._lane_from_direction(
+            str(baseline_decision.get("direction", "N")))
         baseline_duration = int(baseline_decision.get("duration", 0))
 
         info = {
@@ -581,12 +609,16 @@ class ModelController:
             )
             if forced_lane != baseline_lane:
                 direction = forced_lane.replace("lane", "")
+                override_duration = max(
+                    int(cfg.MIN_GREEN),
+                    min(int(cfg.MAX_GREEN), baseline_duration),
+                )
                 decision = {
                     **{lane: 0 for lane in LANE_KEYS},
-                    forced_lane: baseline_duration,
+                    forced_lane: override_duration,
                     "direction": direction,
-                    "duration": baseline_duration,
-                    "action": baseline_decision.get("action", 0),
+                    "duration": override_duration,
+                    "action": self._encode_decision_action(direction, override_duration),
                     "mode": "fairness-hard-override",
                 }
                 info.update(
@@ -594,7 +626,7 @@ class ModelController:
                         "applied": True,
                         "reason": "hard_threshold_breach",
                         "selected_lane": forced_lane,
-                        "selected_duration": baseline_duration,
+                        "selected_duration": override_duration,
                     }
                 )
                 return decision, info
@@ -604,7 +636,8 @@ class ModelController:
 
         scores: dict[str, float] = {}
         for lane in eligible:
-            wait_ratio = self._fairness_state[lane]["wait_seconds"] / max(wait_threshold, 1.0)
+            wait_ratio = self._fairness_state[lane]["wait_seconds"] / \
+                max(wait_threshold, 1.0)
             missed_ratio = self._fairness_state[lane]["missed_turns"] / max(
                 float(missed_threshold), 1.0
             )
@@ -626,12 +659,16 @@ class ModelController:
             and (best_score - baseline_score) >= margin
         ):
             direction = best_lane.replace("lane", "")
+            override_duration = max(
+                int(cfg.MIN_GREEN),
+                min(int(cfg.MAX_GREEN), baseline_duration),
+            )
             decision = {
                 **{lane: 0 for lane in LANE_KEYS},
-                best_lane: baseline_duration,
+                best_lane: override_duration,
                 "direction": direction,
-                "duration": baseline_duration,
-                "action": baseline_decision.get("action", 0),
+                "duration": override_duration,
+                "action": self._encode_decision_action(direction, override_duration),
                 "mode": "fairness-soft-override",
             }
             info.update(
@@ -639,7 +676,7 @@ class ModelController:
                     "applied": True,
                     "reason": "soft_priority_margin",
                     "selected_lane": best_lane,
-                    "selected_duration": baseline_duration,
+                    "selected_duration": override_duration,
                 }
             )
             return decision, info
