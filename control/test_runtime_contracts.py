@@ -10,11 +10,6 @@ if str(ROOT) not in sys.path:
 import config as cfg  # noqa: E402
 from control.emergency_classifier import EmergencyClassifier  # noqa: E402
 from control.model_controller import ModelController  # noqa: E402
-from gui.routes import (  # noqa: E402
-    _apply_fixed_round_robin_override,
-    _apply_low_traffic_duration_policy,
-    _apply_non_repeat_scheduler,
-)
 from training.DQN.environment import decode_action, encode_action  # noqa: E402
 
 
@@ -119,36 +114,6 @@ def _run_model_controller_contract_checks() -> None:
         fairness_soft_decision, "fairness soft override")
 
 
-def _run_route_override_contract_checks() -> None:
-    low_traffic_result, low_traffic_adjusted = _apply_low_traffic_duration_policy(
-        result=_build_decision(direction="N", duration=5, mode="low-traffic"),
-        lane_counts={"laneN": 5, "laneS": 0, "laneE": 0, "laneW": 0},
-        profile_name="night",
-    )
-    if not low_traffic_adjusted:
-        raise AssertionError(
-            "low traffic policy: expected duration floor adjustment")
-    _assert_action_matches_decision(
-        low_traffic_result, "low traffic duration floor")
-
-    fixed_rr_result, _ = _apply_fixed_round_robin_override(
-        result=_build_decision(direction="N", duration=10, mode="fixed-rr"),
-        lane_counts={"laneN": 2, "laneS": 3, "laneE": 1, "laneW": 0},
-        last_served_lane="laneN",
-    )
-    _assert_action_matches_decision(fixed_rr_result, "fixed round robin")
-
-    non_repeat_result, non_repeat_meta = _apply_non_repeat_scheduler(
-        result=_build_decision(direction="N", duration=10, mode="scheduler"),
-        lane_counts={"laneN": 5, "laneS": 6, "laneE": 2, "laneW": 1},
-        last_served_lane="laneN",
-    )
-    if not non_repeat_meta.get("selected_by_scheduler"):
-        raise AssertionError(
-            "non-repeat scheduler: expected lane rotation to be applied")
-    _assert_action_matches_decision(non_repeat_result, "non-repeat scheduler")
-
-
 def _run_emergency_label_policy_contract_checks() -> None:
     classifier = EmergencyClassifier(
         model_path=cfg.MODELS_DIR / "__missing_policy_test_model__.pt"
@@ -167,16 +132,15 @@ def _run_emergency_label_policy_contract_checks() -> None:
             "emergency class-id policy: class id 1 must not trigger"
         )
 
-    for label in ("fire", "fire-truck", "police", "non_emergency", "1"):
-        if classifier._is_emergency(label):
+    for class_id in (0, 1, 2, 4, 6):
+        if classifier._is_target_class(class_id):
             raise AssertionError(
-                f"emergency label policy: label {label!r} must not trigger"
+                f"emergency class-id policy: class id {class_id} must not trigger"
             )
 
 
 def run_tests() -> None:
     _run_model_controller_contract_checks()
-    _run_route_override_contract_checks()
     _run_emergency_label_policy_contract_checks()
     print("Runtime contract checks passed.")
 

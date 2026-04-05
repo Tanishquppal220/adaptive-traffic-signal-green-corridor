@@ -115,8 +115,6 @@ DENSITY_MAX_CLIP = 50.0
 # ── Emergency Model Runtime ───────────────────────────────────────────────────
 EMERGENCY_CONFIDENCE_THRESHOLD = 0.5
 EMERGENCY_TARGET_CLASS_IDS: tuple[int, ...] = (3, 5)
-EMERGENCY_TARGET_LABEL: str = "ambulance"
-EMERGENCY_LABEL_KEYWORDS: tuple[str, ...] = ("ambulance",)
 EMERGENCY_THRESHOLD_PATH = MODELS_DIR / "emergency_classifier_threshold.json"
 
 # Emergency corridor timing policy
@@ -141,12 +139,6 @@ SYNTHETIC_INTENSITY_MIN: float = 0.2
 SYNTHETIC_INTENSITY_MAX: float = 3.0
 SYNTHETIC_SEED_MIN: int = 0
 SYNTHETIC_TICK_MIN: int = 0
-
-LOW_TRAFFIC_QUEUE_THRESHOLD: int = 24
-LOW_TRAFFIC_MIN_GREEN_FLOOR: int = 7
-LOW_TRAFFIC_PER_VEHICLE_BONUS: int = 1
-LOW_TRAFFIC_MAX_GREEN_FLOOR: int = 12
-LOW_TRAFFIC_PROFILES: tuple[str, ...] = ("night",)
 
 # Predictive signal-control tuning (phase 1: decision-layer fusion)
 PREDICTIVE_CONTROL_ENABLED: bool = True

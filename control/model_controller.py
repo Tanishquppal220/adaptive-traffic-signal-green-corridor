@@ -105,10 +105,7 @@ class ModelController:
             lane_counts[lane] = max(0, lane_count)
             per_lane_detection[lane] = detection
 
-            emergency = self._emergency_classifier.classify(
-                frame,
-                boxes=detection.get("boxes", []),
-            )
+            emergency = self._emergency_classifier.classify(frame)
             if emergency.get("detected"):
                 candidate = {
                     **emergency,
@@ -175,10 +172,7 @@ class ModelController:
         if emergency_override is not None:
             emergency = emergency_override
         elif frame is not None:
-            emergency = self._emergency_classifier.classify(
-                frame,
-                boxes=detection_payload.get("boxes", []),
-            )
+            emergency = self._emergency_classifier.classify(frame)
         else:
             emergency = {
                 "detected": False,
