@@ -25,8 +25,13 @@
         <section class="panel">
             <div class="model-grid">
                 <article class="model-card">
+                    <h4>Interactive Pipeline Demo</h4>
+                    <p>Step-by-step 5-model orchestrator — see each model's output live as the pipeline runs.</p>
+                    <p><a class="demo-link" href="{{ url_for('gui.demo_orchestrator') }}">Open Orchestrator Demo</a></p>
+                </article>
+                <article class="model-card">
                     <h4>Upload Pipeline Demo</h4>
-                    <p>Show YOLO-like input flow to final DQN decision and top-down simulation.</p>
+                    <p>One-shot upload flow to DQN decision with canvas-based traffic simulation.</p>
                     <p><a class="demo-link" href="{{ url_for('gui.upload_demo') }}">Open Upload Demo</a></p>
                 </article>
             </div>

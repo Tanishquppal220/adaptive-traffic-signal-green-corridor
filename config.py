@@ -32,6 +32,7 @@ MODELS_DIR.mkdir(exist_ok=True)
 
 TRAFFIC_DETECTION_MODEL_PATH = MODELS_DIR / "traffic_detection_yolov8s.pt"
 EMERGENCY_VEHICLE_MODEL_PATH = MODELS_DIR / "emergency_vehicle_cls_yolov8s.pt"
+SIREN_DETECTOR_MODEL_PATH = MODELS_DIR / "siren_detector_v2.tflite"
 
 # ── Density prediction models (trained per direction) ──────────────────────────
 DENSITY_PREDICTOR_MODELS = {
@@ -117,10 +118,19 @@ EMERGENCY_CONFIDENCE_THRESHOLD = 0.5
 EMERGENCY_TARGET_CLASS_IDS: tuple[int, ...] = (3, 5)
 EMERGENCY_THRESHOLD_PATH = MODELS_DIR / "emergency_classifier_threshold.json"
 
+# ── Siren Model Runtime ───────────────────────────────────────────────────────
+SIREN_CONFIDENCE_THRESHOLD = 0.5
+SIREN_SAMPLE_RATE = 16_000
+SIREN_MIN_DURATION_SEC = 1
+
 # Emergency corridor timing policy
 # Applied duration during emergency: min(dqn_duration + buffer, cap)
 EMERGENCY_DURATION_BUFFER_SEC = 6
 EMERGENCY_DURATION_CAP_SEC = 30
+
+# Preemption timing while switching to an emergency lane already different from
+# the currently active lane.
+EMERGENCY_PREEMPTION_BUFFER_SEC = 3
 
 # If emergency lane queue is already low, avoid wasting long green windows.
 EMERGENCY_LOW_QUEUE_THRESHOLD = 4

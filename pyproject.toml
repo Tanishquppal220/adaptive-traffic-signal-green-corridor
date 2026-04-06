@@ -3,7 +3,7 @@ name = "adaptive-traffic-signal-green-corridor"
 version = "0.1.0"
 description = "Adaptive traffic signal control with green corridor and emergency preemption"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "opencv-python-headless>=4.10",
     "pillow>=9.0",
@@ -24,6 +24,7 @@ dependencies = [
     "matplotlib>=3.8",
     "flask-socketio>=5.6.1",
     "eventlet>=0.40.4",
+    "tensorflow-cpu>=2.21.0",
 ]
 
 [project.optional-dependencies]

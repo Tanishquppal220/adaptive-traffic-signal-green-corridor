@@ -20,11 +20,10 @@
             <h1>Upload Demo: YOLO to DQN</h1>
             <p class="subtitle">Upload one image per lane, run the end-to-end controller, and watch top-down signal
                 simulation.</p>
-            <p><a class="demo-link" href="{{ url_for('gui.index') }}">Back to Demo Selector</a></p>
         </header>
 
         <section class="panel upload-panel">
-            <h2>Step 1: Upload Lane Images</h2>
+            <h2>Step 1: Upload Lane Images + Siren Audio</h2>
             <form id="laneUploadForm" class="upload-grid" enctype="multipart/form-data">
                 <label class="upload-card">
                     <span>North Lane</span>
@@ -42,8 +41,12 @@
                     <span>West Lane</span>
                     <input type="file" name="laneW" accept="image/*" required>
                 </label>
+                <label class="upload-card upload-card-wide">
+                    <span>Siren Audio (WAV)</span>
+                    <input type="file" name="sirenAudio" accept="audio/wav,audio/wave,.wav" required>
+                </label>
                 <div class="actions">
-                    <button id="runBtn" type="submit">Run End-to-End Orchestrator</button>
+                    <button id="runBtn" type="submit">Start Demo</button>
                     <button id="resetBtn" type="button" class="ghost">Reset</button>
                 </div>
             </form>
@@ -114,6 +117,13 @@
                     <p>Direction: <strong id="emergencyDirection">-</strong></p>
                 </article>
                 <article class="model-card">
+                    <h4>Siren Detector</h4>
+                    <p>Detected: <strong id="sirenDetected">-</strong></p>
+                    <p>Confidence: <strong id="sirenConfidence">-</strong></p>
+                    <p>Mode: <strong id="sirenMode">-</strong></p>
+                    <p>Sample Rate: <strong id="sirenSampleRate">-</strong></p>
+                </article>
+                <article class="model-card">
                     <h4>DQN Decision</h4>
                     <p>Mode: <strong id="dqnMode">-</strong></p>
                     <p>Action: <strong id="dqnAction">-</strong></p>
@@ -128,6 +138,9 @@
         <section class="panel sim-panel">
             <h2>Step 3: Visual Simulation</h2>
             <div id="simStatus" class="sim-status">Waiting for upload...</div>
+            <div class="actions sim-actions">
+                <button id="nextBtn" type="button" class="ghost" disabled>Next Step</button>
+            </div>
             <div class="sim-layout">
                 <div class="canvas-wrap">
                     <canvas id="intersectionCanvas" width="980" height="560"

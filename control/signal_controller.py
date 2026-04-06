@@ -132,6 +132,39 @@ class SignalController:
 
         if self._use_dqn:
             action, direction, duration = self._dqn_decide(counts)
+            
+            # ── 1. direction safeguard (shielding) ───────────────────────
+            # Prevent the DQN picking a practically empty lane when another 
+            # lane is heavily backed up.
+            busiest_direction = int(np.argmax(counts))
+            busiest_queue = float(counts[busiest_direction])
+            chosen_queue = float(counts[direction])
+            
+            if chosen_queue < (busiest_queue * 0.5) and busiest_queue > 0:
+                logger.info(
+                    "Direction shield applied: DQN picked %s (q=%d), overriding to busiest %s (q=%d)",
+                    DIR_LABELS[direction], int(chosen_queue),
+                    DIR_LABELS[busiest_direction], int(busiest_queue)
+                )
+                direction = busiest_direction
+
+            # ── 2. duration floor safeguard ──────────────────────────────
+            queue_in_chosen = float(counts[direction])
+            if queue_in_chosen > 0:
+                # ~2s per vehicle at 1.5 veh/s discharge, clamped to [MIN, MAX]
+                min_duration = int(np.clip(
+                    round(queue_in_chosen / 1.5), MIN_GREEN, MAX_GREEN
+                ))
+                if duration < min_duration:
+                    logger.debug(
+                        "Duration floor applied: %s → %ds (queue=%d)",
+                        DIR_LABELS[direction], duration, int(queue_in_chosen),
+                    )
+                    duration = min_duration
+            
+            # Repackage potentially shielded action
+            action = encode_action(direction, duration)
+            
         else:
             action, direction, duration = self._proportional_decide(counts)
 

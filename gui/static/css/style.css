@@ -186,6 +186,10 @@ h1 {
   background: var(--surface);
 }
 
+.upload-card-wide {
+  grid-column: 1 / -1;
+}
+
 .upload-card span {
   font-weight: 600;
 }
@@ -330,6 +334,11 @@ button:disabled {
 .sim-status {
   margin-bottom: 0.8rem;
   color: var(--muted);
+}
+
+.sim-actions {
+  margin-top: 0;
+  margin-bottom: 0.8rem;
 }
 
 .sim-layout {

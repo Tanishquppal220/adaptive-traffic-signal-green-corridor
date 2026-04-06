@@ -9,6 +9,7 @@ const laneLabels = {
 const form = document.getElementById("laneUploadForm");
 const runBtn = document.getElementById("runBtn");
 const resetBtn = document.getElementById("resetBtn");
+const nextBtn = document.getElementById("nextBtn");
 const formMessage = document.getElementById("formMessage");
 const simStatus = document.getElementById("simStatus");
 const emergencyBanner = document.getElementById("emergencyBanner");
@@ -34,6 +35,11 @@ const emergencyDetectedNode = document.getElementById("emergencyDetected");
 const emergencyLabelNode = document.getElementById("emergencyLabel");
 const emergencyConfidenceNode = document.getElementById("emergencyConfidence");
 const emergencyDirectionNode = document.getElementById("emergencyDirection");
+
+const sirenDetectedNode = document.getElementById("sirenDetected");
+const sirenConfidenceNode = document.getElementById("sirenConfidence");
+const sirenModeNode = document.getElementById("sirenMode");
+const sirenSampleRateNode = document.getElementById("sirenSampleRate");
 
 const dqnModeNode = document.getElementById("dqnMode");
 const dqnActionNode = document.getElementById("dqnAction");
@@ -64,6 +70,12 @@ const world = {
   assignedDurationMs: 10000,
   laneTimings: {},
   phaseCycles: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
+  fairMode: "soft",
+  awaitingNext: false,
+  waitingServer: false,
+  lastServedLane: null,
+  pendingDecision: null,
+  preemptionBufferMs: 0,
   emergencyLane: null,
   emergencyActive: false,
   emergencyCarSpawned: false,
@@ -129,6 +141,7 @@ function renderModelOutputs(modelOutputs = {}) {
   const detector = modelOutputs.detector || {};
   const density = modelOutputs.density || {};
   const emergency = modelOutputs.emergency || {};
+  const siren = modelOutputs.siren || {};
   const dqn = modelOutputs.dqn || {};
 
   const dCounts = detector.lane_counts || {};
@@ -147,7 +160,19 @@ function renderModelOutputs(modelOutputs = {}) {
   emergencyDetectedNode.textContent = emergency.detected ? "YES" : "NO";
   emergencyLabelNode.textContent = emergency.label || "-";
   emergencyConfidenceNode.textContent = Number(emergency.confidence || 0).toFixed(2);
-  emergencyDirectionNode.textContent = emergency.direction || emergency.status || "-";
+  if (emergency.lane_counts) {
+    const c = emergency.lane_counts;
+    emergencyDirectionNode.textContent =
+      `${emergency.direction || emergency.status || "-"} ` +
+      `(N:${c.laneN ?? 0} S:${c.laneS ?? 0} E:${c.laneE ?? 0} W:${c.laneW ?? 0})`;
+  } else {
+    emergencyDirectionNode.textContent = emergency.direction || emergency.status || "-";
+  }
+
+  sirenDetectedNode.textContent = siren.detected ? "YES" : "NO";
+  sirenConfidenceNode.textContent = Number(siren.confidence || 0).toFixed(2);
+  sirenModeNode.textContent = siren.mode || "-";
+  sirenSampleRateNode.textContent = siren.sample_rate ? `${siren.sample_rate}Hz` : "-";
 
   dqnModeNode.textContent = dqn.mode || "-";
   dqnActionNode.textContent = dqn.action ?? "-";
@@ -379,6 +404,9 @@ function enterGreen(lane) {
   world.phaseTimeMs = world.assignedDurationMs;
   world.clearAccumulatorMs = 0;
   world.phaseCycles[lane] = (world.phaseCycles[lane] || 0) + 1;
+  world.lastServedLane = lane;
+  world.awaitingNext = false;
+  nextBtn.disabled = true;
 
   simStatus.textContent =
     `Green phase for ${laneLabels[lane]} (${Math.round(world.assignedDurationMs / 1000)}s)`;
@@ -401,12 +429,30 @@ function completeSimulation() {
   world.finished = true;
   simStatus.textContent = "Simulation finished: all lanes cleared.";
   setMessage("Simulation complete.");
+  nextBtn.disabled = true;
   updatePhaseText();
   renderTimingTable();
 }
 
+function pauseForNextStep() {
+  world.signal = "red";
+  world.activeLane = null;
+  world.phaseType = "paused";
+  world.phaseTimeMs = 0;
+  world.awaitingNext = true;
+
+  if (totalCars() <= 0) {
+    completeSimulation();
+    return;
+  }
+
+  simStatus.textContent = "Step complete. Click Next Step to run next inference.";
+  updatePhaseText();
+  nextBtn.disabled = false;
+}
+
 function tickPhase(dtMs) {
-  if (world.phaseType === "done" || world.phaseType === "idle") {
+  if (world.phaseType === "done" || world.phaseType === "idle" || world.phaseType === "paused") {
     return;
   }
 
@@ -444,11 +490,13 @@ function tickPhase(dtMs) {
   } else if (world.phaseType === "yellow") {
     world.phaseTimeMs -= dtMs;
     if (world.phaseTimeMs <= 0) {
-      const next = nextLaneWithCars();
-      if (next) {
-        enterGreen(next);
+      if (world.pendingDecision) {
+        const pending = { ...world.pendingDecision };
+        world.pendingDecision = null;
+        world.assignedDurationMs = pending.durationMs;
+        enterGreen(pending.lane);
       } else {
-        completeSimulation();
+        pauseForNextStep();
       }
     }
   }
@@ -495,23 +543,24 @@ function animationLoop(ts) {
   }
 }
 
-function startSimulation(payload) {
+function applyDecision(payload, initializeCounts = false) {
   const sim = payload.simulation;
   const decision = payload.decision;
 
-  world.counts = { ...sim.initial_counts };
-  world.initialCounts = { ...sim.initial_counts };
-  world.sequence = [...sim.sequence];
-  world.sequenceCursor = 0;
-  world.movingCars = [];
+  if (initializeCounts) {
+    world.counts = { ...sim.initial_counts };
+    world.initialCounts = { ...sim.initial_counts };
+    world.movingCars = [];
+    world.phaseCycles = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
+    world.finished = false;
+  }
+
   world.clearRateMin = sim.clear_rate_min || 1;
   world.clearRateMax = sim.clear_rate_max || 2;
   world.yellowMs = sim.yellow_ms || 900;
-  world.assignedDurationMs = (sim.selected_duration || 1) * 1000;
   world.laneTimings = { ...(sim.lane_timings || {}) };
-  world.phaseCycles = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
   world.seededRand = mulberry32(sim.seed || Date.now());
-  world.finished = false;
+  world.preemptionBufferMs = (sim.preemption_buffer_sec || 0) * 1000;
   applyEmergencyVisualState(sim);
 
   modeValue.textContent = decision.mode || "-";
@@ -521,9 +570,32 @@ function startSimulation(payload) {
 
   renderModelOutputs(payload.model_outputs || {});
   renderCounts();
-  enterGreen(sim.selected_lane);
+
+  if (
+    world.preemptionBufferMs > 0 &&
+    world.lastServedLane &&
+    world.lastServedLane !== sim.selected_lane
+  ) {
+    world.pendingDecision = {
+      lane: sim.selected_lane,
+      durationMs: (sim.selected_duration || 1) * 1000,
+    };
+    world.assignedDurationMs = world.preemptionBufferMs;
+    simStatus.textContent =
+      `Emergency preemption buffer (${Math.round(world.preemptionBufferMs / 1000)}s) before switching.`;
+    enterGreen(world.lastServedLane);
+  } else {
+    world.pendingDecision = null;
+    world.assignedDurationMs = (sim.selected_duration || 1) * 1000;
+    enterGreen(sim.selected_lane);
+  }
+
   renderTimingTable();
   drawScene();
+}
+
+function startSimulation(payload) {
+  applyDecision(payload, true);
 
   if (animationId) {
     window.cancelAnimationFrame(animationId);
@@ -545,6 +617,12 @@ function resetWorld() {
   world.movingCars = [];
   world.sequence = [];
   world.sequenceCursor = 0;
+  world.fairMode = "soft";
+  world.awaitingNext = false;
+  world.waitingServer = false;
+  world.lastServedLane = null;
+  world.pendingDecision = null;
+  world.preemptionBufferMs = 0;
   world.activeLane = null;
   world.signal = "red";
   world.phaseType = "idle";
@@ -557,6 +635,7 @@ function resetWorld() {
   world.emergencyActive = false;
   world.emergencyCarSpawned = false;
   world.finished = false;
+  nextBtn.disabled = true;
 
   renderCounts();
   updatePhaseText();
@@ -569,6 +648,7 @@ form.addEventListener("submit", async (event) => {
   setMessage("Processing images and running orchestrator...");
   simStatus.textContent = "Preparing simulation...";
   runBtn.disabled = true;
+  nextBtn.disabled = true;
 
   runToken = Date.now();
   const localToken = runToken;
@@ -590,12 +670,56 @@ form.addEventListener("submit", async (event) => {
     }
 
     startSimulation(payload);
+    setMessage("Cycle started. Animation is running.");
   } catch (error) {
     setMessage(error.message || "Unexpected error", true);
     simStatus.textContent = "Simulation could not start.";
   } finally {
     runBtn.disabled = false;
   }
+});
+
+async function requestNextCycle() {
+  if (world.waitingServer || world.finished || !world.awaitingNext) {
+    return;
+  }
+
+  world.waitingServer = true;
+  nextBtn.disabled = true;
+  setMessage("Running next cycle inference...");
+  simStatus.textContent = "Waiting for next-cycle decision...";
+
+  try {
+    const response = await fetch("/api/next_cycle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lane_counts: { ...world.counts },
+        current_active_lane: world.lastServedLane,
+        fairness_mode: world.fairMode,
+      }),
+    });
+
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || "Failed to run next cycle");
+    }
+
+    applyDecision(payload, false);
+    setMessage("Next cycle started.");
+  } catch (error) {
+    setMessage(error.message || "Unexpected error", true);
+    simStatus.textContent = "Could not run next cycle.";
+    if (!world.finished) {
+      nextBtn.disabled = false;
+    }
+  } finally {
+    world.waitingServer = false;
+  }
+}
+
+nextBtn.addEventListener("click", () => {
+  requestNextCycle();
 });
 
 resetBtn.addEventListener("click", () => {

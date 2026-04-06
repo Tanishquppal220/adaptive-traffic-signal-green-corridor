@@ -24,10 +24,10 @@ State  (6 floats, all normalised to [0, 1])
 
 Reward
 ──────
-  + throughput_score  – fraction of the green lane's queue that was cleared
+  + throughput_score  – fraction of the green lane's QUEUE that was actually cleared
   − waiting_penalty   – 0.05 × total vehicles still waiting across all lanes
-  − duration_cost     – 0.002 × chosen green seconds
-      (prevents the agent always choosing 60 s even when only 3 cars are waiting)
+  − duration_cost     – 0.001 × chosen green seconds
+      (mild penalty prevents the agent always choosing 60 s for tiny queues)
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ ARRIVAL_RATE_PEAK = 2.0    # vehicles / second / lane  (peak hour)
 DISCHARGE_RATE    = 1.5    # vehicles / second leaving the green lane
 MAX_QUEUE         = 30     # hard cap on queue length per lane
 WAITING_PENALTY   = 0.05   # reward deduction per waiting vehicle
-DURATION_COST     = 0.002  # reward deduction per second of chosen green
+DURATION_COST     = 0.001  # reward deduction per second of chosen green
 MAX_VEHICLES_NORM = 30.0   # divisor used to normalise counts → [0, 1]
 
 
@@ -199,12 +199,16 @@ class TrafficEnv:
         self.queues = np.clip(self.queues + arrivals, 0, MAX_QUEUE)
 
         # 2. Discharge the green lane ──────────────────────────────────────────
+        queue_before  = float(self.queues[direction])
         max_discharge = DISCHARGE_RATE * duration
-        discharged    = float(min(self.queues[direction], max_discharge))
+        discharged    = float(min(queue_before, max_discharge))
         self.queues[direction] = max(0.0, self.queues[direction] - discharged)
 
         # 3. Reward ────────────────────────────────────────────────────────────
-        throughput    = discharged / max_discharge if max_discharge > 0 else 0.0
+        #    throughput = fraction of the QUEUE cleared (not fraction of
+        #    discharge capacity). This incentivises picking a duration long
+        #    enough to actually drain the chosen lane.
+        throughput    = discharged / max(1.0, queue_before)
         total_waiting = float(self.queues.sum())
         reward = (
               throughput
