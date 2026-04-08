@@ -81,17 +81,37 @@ h1 {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 30%) minmax(0, 70%);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "upload upload"
+    "result sim";
   gap: 1rem;
-  align-items: start;
+  align-items: stretch;
 }
 
 .dashboard-grid .panel {
   margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
-.dashboard-grid .result-panel {
-  grid-row: span 2;
+.result-panel,
+.sim-panel {
+  height: 100%;
+}
+
+.upload-panel {
+  grid-area: upload;
+}
+
+.result-panel {
+  grid-area: result;
+}
+
+.sim-panel {
+  grid-area: sim;
 }
 
 .demo-link {

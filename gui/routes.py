@@ -14,24 +14,6 @@ from control.schema import normalize_lane_counts
 bp = Blueprint("gui", __name__)
 controller = ModelController()
 
-# Initialize demo cache on controller (persists across requests)
-controller._demo_cache = {
-    "lane_frames": {},
-    "audio_bytes": None,
-    "lane_counts": {},
-    "emergency": {},
-    "siren": {},
-    "smoothed_counts": {},
-}
-
-
-# ════════════════════════════════════════════════════════════
-# Pipeline Demo Cache (persists across HTTP requests)
-# ════════════════════════════════════════════════════════════
-def _get_demo_cache() -> dict[str, Any]:
-    """Get demo cache from controller (persists across requests)."""
-    return controller._demo_cache
-
 
 def _decode_image(field_name: str) -> np.ndarray:
     if field_name not in request.files:
@@ -147,7 +129,10 @@ def _build_response(
         "density": {
             "mode": density.get("mode", "unknown"),
             "horizon_sec": density.get("horizon_sec"),
-            "predictions": density.get("predictions", {}),
+            "predictions": {
+                lane: int(round(float(value)))
+                for lane, value in density.get("predictions", {}).items()
+            },
         },
         "emergency": {
             "detected": bool(emergency.get("detected", False)),
@@ -203,224 +188,15 @@ def _build_response(
 
 
 # ════════════════════════════════════════════════════════════
-# Pipeline Demo: 5-Step Orchestration (for interactive UI)
-# ════════════════════════════════════════════════════════════
-
-@bp.post("/api/step1/detect-traffic")
-def step1_detect_traffic():
-    """Step 1: Traffic Detection (YOLOv8) on 4 lane images."""
-    try:
-        cache = _get_demo_cache()
-        t0 = time.perf_counter()
-
-        # Decode all 4 lane images
-        lane_frames = {lane: _decode_image(lane) for lane in LANE_KEYS}
-        cache["lane_frames"] = lane_frames
-
-        # Run traffic detection on each lane
-        lane_counts = {}
-        for lane in LANE_KEYS:
-            detection = controller._traffic_detector.detect(lane_frames[lane])
-            lane_counts[lane] = int(detection.get("total", 0))
-
-        cache["lane_counts"] = lane_counts
-        elapsed_ms = round((time.perf_counter() - t0) * 1000)
-
-        return jsonify({
-            "counts": lane_counts,
-            "inference_ms": elapsed_ms,
-            "mode": "yolov8s",
-        })
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except Exception as exc:
-        return jsonify({"error": f"Traffic detection failed: {str(exc)}"}), 500
-
-
-@bp.post("/api/step2/detect-emergency")
-def step2_detect_emergency():
-    """Step 2: Emergency Vehicle Detection (YOLOv8) on 4 lane images."""
-    try:
-        cache = _get_demo_cache()
-        lane_frames = cache.get("lane_frames", {})
-        t0 = time.perf_counter()
-
-        if not lane_frames:
-            return jsonify({"error": "No lane frames in cache. Run step 1 first."}), 400
-
-        # Run emergency detection on each lane
-        emergency_lane_counts = {}
-        best_emergency = None
-        best_confidence = 0.0
-
-        for lane in LANE_KEYS:
-            emergency = controller._emergency_classifier.classify(
-                lane_frames.get(lane))
-            emergency_count = int(
-                sum(1 for item in emergency.get("predictions", [])
-                    if item.get("is_emergency"))
-            )
-            emergency_lane_counts[lane] = emergency_count
-
-            if emergency.get("detected"):
-                confidence = float(emergency.get("confidence", 0.0))
-                if confidence > best_confidence:
-                    best_emergency = {
-                        **emergency,
-                        "lane": lane,
-                        "direction": lane.replace("lane", ""),
-                        "confidence": confidence,
-                    }
-                    best_confidence = confidence
-
-        if best_emergency is None:
-            best_emergency = {
-                "detected": False,
-                "label": None,
-                "confidence": 0.0,
-                "direction": None,
-                "lane": None,
-            }
-
-        cache["emergency"] = best_emergency
-        cache["emergency_lane_counts"] = emergency_lane_counts
-        elapsed_ms = round((time.perf_counter() - t0) * 1000)
-
-        return jsonify({
-            "emergency_detected": best_emergency.get("detected", False),
-            "lane": best_emergency.get("direction"),
-            "label": best_emergency.get("label"),
-            "confidence": float(best_emergency.get("confidence", 0.0)),
-            "inference_ms": elapsed_ms,
-            "mode": "yolov8s",
-        })
-    except Exception as exc:
-        return jsonify({"error": f"Emergency detection failed: {str(exc)}"}), 500
-
-
-@bp.post("/api/step3/detect-siren")
-def step3_detect_siren():
-    """Step 3: Siren Detection (TFLite) on audio."""
-    try:
-        cache = _get_demo_cache()
-        t0 = time.perf_counter()
-
-        # Decode audio if not already cached
-        if "audio_bytes" not in cache or cache["audio_bytes"] is None:
-            cache["audio_bytes"] = _decode_audio("sirenAudio")
-
-        # Run siren detection
-        siren = controller._siren_detector.detect(cache["audio_bytes"])
-        cache["siren"] = siren
-        elapsed_ms = round((time.perf_counter() - t0) * 1000)
-
-        return jsonify({
-            "siren_detected": bool(siren.get("detected", False)),
-            "confidence": float(siren.get("confidence", 0.0)),
-            "inference_ms": elapsed_ms,
-            "mode": siren.get("mode", "tflite"),
-        })
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except Exception as exc:
-        return jsonify({"error": f"Siren detection failed: {str(exc)}"}), 500
-
-
-@bp.post("/api/step4/predict-density")
-def step4_predict_density():
-    """Step 4: Density Prediction (XGBoost) for smoothing."""
-    try:
-        cache = _get_demo_cache()
-        lane_counts = cache.get("lane_counts", {})
-        t0 = time.perf_counter()
-
-        if not lane_counts:
-            return jsonify({"error": "No lane counts in cache. Run step 1 first."}), 400
-
-        # Normalize counts
-        normalized_counts = normalize_lane_counts(lane_counts)
-
-        # Run density prediction
-        density = controller._density_predictor.predict(normalized_counts)
-        cache["density"] = density
-
-        # Extract smoothed counts (typically direction-based)
-        predictions = density.get("predictions", {})
-        elapsed_ms = round((time.perf_counter() - t0) * 1000)
-
-        return jsonify({
-            "smoothed_counts": predictions,
-            "horizon_sec": density.get("horizon_sec"),
-            "inference_ms": elapsed_ms,
-            "mode": density.get("mode", "xgboost"),
-        })
-    except Exception as exc:
-        return jsonify({"error": f"Density prediction failed: {str(exc)}"}), 500
-
-
-@bp.post("/api/step5/optimize-signal")
-def step5_optimize_signal():
-    """Step 5: DQN Signal Optimization."""
-    try:
-        cache = _get_demo_cache()
-        lane_counts = cache.get("lane_counts", {})
-        emergency = cache.get("emergency", {})
-        siren = cache.get("siren", {})
-        t0 = time.perf_counter()
-
-        if not lane_counts:
-            return jsonify({"error": "No lane counts in cache. Run steps 1-4 first."}), 400
-
-        # Normalize counts
-        normalized_counts = normalize_lane_counts(lane_counts)
-
-        # Check for emergency+siren condition
-        emergency_visual = bool(emergency.get("detected", False))
-        siren_detected = bool(siren.get("detected", False))
-        emergency_active = emergency_visual and siren_detected
-
-        # Run full decision pipeline
-        result = controller.decide_from_lane_counts(
-            lane_counts=normalized_counts,
-            frame=None,
-            emergency_override=emergency if emergency_visual else None,
-            siren_override=siren,
-            cache_cycle_context=False,
-        )
-
-        cache["result"] = result
-        elapsed_ms = round((time.perf_counter() - t0) * 1000)
-
-        return jsonify({
-            "direction": result.get("direction", "N"),
-            "duration_s": int(result.get("duration", 10)),
-            "mode": result.get("mode", "dqn"),
-            "action": int(result.get("action", 0)),
-            "q_value": float(result.get("q_value", 0.0)) if "q_value" in result else 0.5,
-            "state_vector": result.get("state_vector", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-            "emergency_detected": emergency_active,
-            "inference_ms": elapsed_ms,
-        })
-    except Exception as exc:
-        return jsonify({"error": f"Signal optimization failed: {str(exc)}"}), 500
-
-
-# ════════════════════════════════════════════════════════════
 # Original Routes
 # ════════════════════════════════════════════════════════════
 
-@bp.get("/demo/orchestrator")
-def demo_orchestrator():
-    """Interactive 5-step demo with live pipeline visualization."""
-    return render_template("demo_orchestrator.html")
+# @bp.get("/")
+# def index():
+#     return render_template("index.html")
 
 
 @bp.get("/")
-def index():
-    return render_template("index.html")
-
-
-@bp.get("/demo/upload")
 def upload_demo():
     return render_template("upload_demo.html", lane_keys=LANE_KEYS)
 

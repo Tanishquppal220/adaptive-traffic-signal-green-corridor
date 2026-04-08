@@ -9,7 +9,6 @@ const laneLabels = {
 const form = document.getElementById("laneUploadForm");
 const runBtn = document.getElementById("runBtn");
 const resetBtn = document.getElementById("resetBtn");
-const nextBtn = document.getElementById("nextBtn");
 const formMessage = document.getElementById("formMessage");
 const simStatus = document.getElementById("simStatus");
 const emergencyBanner = document.getElementById("emergencyBanner");
@@ -23,11 +22,9 @@ const phaseLaneNode = document.getElementById("phaseLane");
 const phaseSignalNode = document.getElementById("phaseSignal");
 const phaseRemainingNode = document.getElementById("phaseRemaining");
 
-const detectorModeNode = document.getElementById("detectorMode");
 const detectorTotalNode = document.getElementById("detectorTotal");
 const detectorCountsNode = document.getElementById("detectorCounts");
 
-const densityModeNode = document.getElementById("densityMode");
 const densityHorizonNode = document.getElementById("densityHorizon");
 const densityValuesNode = document.getElementById("densityValues");
 
@@ -38,10 +35,8 @@ const emergencyDirectionNode = document.getElementById("emergencyDirection");
 
 const sirenDetectedNode = document.getElementById("sirenDetected");
 const sirenConfidenceNode = document.getElementById("sirenConfidence");
-const sirenModeNode = document.getElementById("sirenMode");
 const sirenSampleRateNode = document.getElementById("sirenSampleRate");
 
-const dqnModeNode = document.getElementById("dqnMode");
 const dqnActionNode = document.getElementById("dqnAction");
 const dqnDirectionNode = document.getElementById("dqnDirection");
 const dqnDurationNode = document.getElementById("dqnDuration");
@@ -147,17 +142,15 @@ function renderModelOutputs(modelOutputs = {}) {
   const dqn = modelOutputs.dqn || {};
 
   const dCounts = detector.lane_counts || {};
-  detectorModeNode.textContent = detector.mode || "-";
   detectorTotalNode.textContent = detector.total ?? "-";
   detectorCountsNode.textContent =
     `N:${dCounts.laneN ?? 0} S:${dCounts.laneS ?? 0} E:${dCounts.laneE ?? 0} W:${dCounts.laneW ?? 0}`;
 
   const p = density.predictions || {};
-  densityModeNode.textContent = density.mode || "-";
   densityHorizonNode.textContent = density.horizon_sec ? `${density.horizon_sec}s` : "-";
   densityValuesNode.textContent =
-    `N:${Number(p.N || 0).toFixed(1)} S:${Number(p.S || 0).toFixed(1)} ` +
-    `E:${Number(p.E || 0).toFixed(1)} W:${Number(p.W || 0).toFixed(1)}`;
+    `N:${Math.round(p.N || 0)} S:${Math.round(p.S || 0)} ` +
+    `E:${Math.round(p.E || 0)} W:${Math.round(p.W || 0)}`;
 
   emergencyDetectedNode.textContent = emergency.detected ? "YES" : "NO";
   emergencyLabelNode.textContent = emergency.label || "-";
@@ -173,10 +166,8 @@ function renderModelOutputs(modelOutputs = {}) {
 
   sirenDetectedNode.textContent = siren.detected ? "YES" : "NO";
   sirenConfidenceNode.textContent = Number(siren.confidence || 0).toFixed(2);
-  sirenModeNode.textContent = siren.mode || "-";
   sirenSampleRateNode.textContent = siren.sample_rate ? `${siren.sample_rate}Hz` : "-";
 
-  dqnModeNode.textContent = dqn.mode || "-";
   dqnActionNode.textContent = dqn.action ?? "-";
   dqnDirectionNode.textContent = dqn.direction || "-";
   dqnDurationNode.textContent = dqn.duration ? `${dqn.duration}s` : "-";
@@ -479,7 +470,6 @@ function enterGreen(lane) {
   world.phaseCycles[lane] = (world.phaseCycles[lane] || 0) + 1;
   world.lastServedLane = lane;
   world.awaitingNext = false;
-  nextBtn.disabled = true;
 
   simStatus.textContent =
     `Green phase for ${laneLabels[lane]} (${Math.round(world.assignedDurationMs / 1000)}s)`;
@@ -503,7 +493,6 @@ function completeSimulation() {
   world.autoNextPending = false;
   simStatus.textContent = "Simulation finished: all lanes cleared.";
   setMessage("Simulation complete.");
-  nextBtn.disabled = true;
   updatePhaseText();
   renderTimingTable();
 }
@@ -520,10 +509,9 @@ function pauseForNextStep() {
     return;
   }
 
-  simStatus.textContent = "Step complete. Click Next Step to run next inference.";
+  simStatus.textContent = "Step complete. Automatically running next decision...";
   world.autoNextPending = true;
   updatePhaseText();
-  nextBtn.disabled = false;
 }
 
 function tickPhase(dtMs) {
@@ -734,7 +722,6 @@ function resetWorld() {
   world.emergencyActive = false;
   world.emergencyCarSpawned = false;
   world.finished = false;
-  nextBtn.disabled = true;
 
   renderCounts();
   updatePhaseText();
@@ -747,7 +734,6 @@ form.addEventListener("submit", async (event) => {
   setMessage("Processing images and running orchestrator...");
   simStatus.textContent = "Preparing simulation...";
   runBtn.disabled = true;
-  nextBtn.disabled = true;
 
   runToken = Date.now();
   const localToken = runToken;
@@ -785,7 +771,6 @@ async function requestNextCycle() {
 
   world.autoNextPending = false;
   world.waitingServer = true;
-  nextBtn.disabled = true;
   setMessage("Running next cycle inference...");
   simStatus.textContent = "Waiting for next-cycle decision...";
 
@@ -812,17 +797,10 @@ async function requestNextCycle() {
   } catch (error) {
     setMessage(error.message || "Unexpected error", true);
     simStatus.textContent = "Could not run next cycle.";
-    if (!world.finished) {
-      nextBtn.disabled = false;
-    }
   } finally {
     world.waitingServer = false;
   }
 }
-
-nextBtn.addEventListener("click", () => {
-  requestNextCycle();
-});
 
 resetBtn.addEventListener("click", () => {
   form.reset();
