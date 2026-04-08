@@ -70,9 +70,9 @@ const world = {
   assignedDurationMs: 10000,
   laneTimings: {},
   phaseCycles: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
-  fairMode: "soft",
   awaitingNext: false,
   waitingServer: false,
+  autoNextPending: false,
   lastServedLane: null,
   pendingDecision: null,
   preemptionBufferMs: 0,
@@ -427,6 +427,7 @@ function completeSimulation() {
   world.activeLane = null;
   world.phaseType = "done";
   world.finished = true;
+  world.autoNextPending = false;
   simStatus.textContent = "Simulation finished: all lanes cleared.";
   setMessage("Simulation complete.");
   nextBtn.disabled = true;
@@ -447,6 +448,7 @@ function pauseForNextStep() {
   }
 
   simStatus.textContent = "Step complete. Click Next Step to run next inference.";
+  world.autoNextPending = true;
   updatePhaseText();
   nextBtn.disabled = false;
 }
@@ -538,6 +540,11 @@ function animationLoop(ts) {
   tickMovingCars(dtMs);
   drawScene();
 
+  if (world.awaitingNext && !world.waitingServer && !world.finished && totalCars() > 0 && world.autoNextPending) {
+    world.autoNextPending = false;
+    requestNextCycle();
+  }
+
   if (!world.finished || world.movingCars.length > 0) {
     animationId = window.requestAnimationFrame(animationLoop);
   }
@@ -617,9 +624,9 @@ function resetWorld() {
   world.movingCars = [];
   world.sequence = [];
   world.sequenceCursor = 0;
-  world.fairMode = "soft";
   world.awaitingNext = false;
   world.waitingServer = false;
+  world.autoNextPending = false;
   world.lastServedLane = null;
   world.pendingDecision = null;
   world.preemptionBufferMs = 0;
@@ -684,6 +691,7 @@ async function requestNextCycle() {
     return;
   }
 
+  world.autoNextPending = false;
   world.waitingServer = true;
   nextBtn.disabled = true;
   setMessage("Running next cycle inference...");
@@ -696,7 +704,6 @@ async function requestNextCycle() {
       body: JSON.stringify({
         lane_counts: { ...world.counts },
         current_active_lane: world.lastServedLane,
-        fairness_mode: world.fairMode,
       }),
     });
 

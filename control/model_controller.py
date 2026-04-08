@@ -19,8 +19,6 @@ from control.siren_detector import SirenDetector
 from control.traffic_detector import TrafficDetector
 from training.DQN.environment import encode_action
 
-FAIRNESS_MODES = {"off", "soft", "hard"}
-
 
 class ModelController:
     """End-to-end controller that orchestrates all runtime models.
@@ -35,6 +33,7 @@ class ModelController:
         dqn_weights_path: str | Path | None = None,
         device: str = "cpu",
     ) -> None:
+        print("Model loading started...")
         self._traffic_detector = TrafficDetector()
         self._emergency_classifier = EmergencyClassifier()
         self._siren_detector = SirenDetector()
@@ -44,15 +43,9 @@ class ModelController:
                 "models") / "dqn_signal_optimizer.pt",
             device=device,
         )
+        print("Model loading completed.")
         self._last_lane_counts = {k: 0 for k in LANE_KEYS}
         self._last_emergency_active = False
-        self._fairness_state = {
-            lane: {
-                "wait_seconds": 0.0,
-                "missed_turns": 0,
-            }
-            for lane in LANE_KEYS
-        }
         self._predictive_ema_counts = {lane: 0.0 for lane in LANE_KEYS}
         self._predictive_last_selected_lane: str | None = None
         self._predictive_hold_cycles = 0
@@ -98,7 +91,6 @@ class ModelController:
         self,
         lane_frames: dict[str, np.ndarray],
         audio_bytes: bytes | None = None,
-        fairness_mode: str | None = None,
         current_active_lane: str | None = None,
         cache_cycle_context: bool = True,
     ) -> dict[str, Any]:
@@ -120,7 +112,8 @@ class ModelController:
 
             emergency = self._emergency_classifier.classify(frame)
             emergency_count = int(
-                sum(1 for item in emergency.get("predictions", []) if item.get("is_emergency"))
+                sum(1 for item in emergency.get("predictions", [])
+                    if item.get("is_emergency"))
             )
             emergency_lane_counts[lane] = max(0, emergency_count)
             if emergency.get("detected"):
@@ -172,7 +165,6 @@ class ModelController:
             detection=merged_detection,
             emergency_override=best_emergency,
             siren_override=siren,
-            fairness_mode=fairness_mode,
             current_active_lane=current_active_lane,
             cache_cycle_context=cache_cycle_context,
         )
@@ -187,10 +179,10 @@ class ModelController:
         self,
         lane_counts: dict[str, int],
         current_active_lane: str | None = None,
-        fairness_mode: str | None = None,
     ) -> dict[str, Any]:
         if not self.has_cached_cycle_context():
-            raise ValueError("No cached cycle context. Run /api/run_cycle first.")
+            raise ValueError(
+                "No cached cycle context. Run /api/run_cycle first.")
 
         detection_payload = {
             "lane_counts": normalize_lane_counts(lane_counts),
@@ -206,7 +198,6 @@ class ModelController:
             detection=detection_payload,
             emergency_override={**(self._cached_emergency_override or {})},
             siren_override={**(self._cached_siren_detection or {})},
-            fairness_mode=fairness_mode,
             current_active_lane=current_active_lane,
             cache_cycle_context=False,
         )
@@ -218,10 +209,8 @@ class ModelController:
         detection: dict[str, Any] | None = None,
         emergency_override: dict[str, Any] | None = None,
         siren_override: dict[str, Any] | None = None,
-        fairness_mode: str | None = None,
         current_active_lane: str | None = None,
         locked_control: dict[str, Any] | None = None,
-        update_fairness_state: bool = True,
         cache_cycle_context: bool = True,
     ) -> dict[str, Any]:
         lane_counts = normalize_lane_counts(lane_counts)
@@ -298,21 +287,6 @@ class ModelController:
             if locked_control is not None
             else {**baseline_decision}
         )
-        fairness_mode_resolved = self._normalize_fairness_mode(fairness_mode)
-        fairness_info = {
-            "mode": fairness_mode_resolved,
-            "applied": False,
-            "reason": None,
-            "selected_lane": self._lane_from_direction(
-                str(baseline_decision.get("direction", "N"))
-            ),
-            "selected_duration": int(baseline_decision.get("duration", 0)),
-            "baseline_lane": self._lane_from_direction(
-                str(baseline_decision.get("direction", "N"))
-            ),
-            "baseline_duration": int(baseline_decision.get("duration", 0)),
-            "lane_state": self._fairness_snapshot(),
-        }
 
         if emergency_detected:
             emergency_lane = str(emergency.get("emergency_lane") or "")
@@ -342,7 +316,8 @@ class ModelController:
             current_lane = str(current_active_lane or "")
             preemption_buffer_sec = 0
             if current_lane in LANE_KEYS and current_lane != emergency_lane:
-                preemption_buffer_sec = int(cfg.EMERGENCY_PREEMPTION_BUFFER_SEC)
+                preemption_buffer_sec = int(
+                    cfg.EMERGENCY_PREEMPTION_BUFFER_SEC)
 
             decision = {
                 **{lane: 0 for lane in LANE_KEYS},
@@ -365,33 +340,11 @@ class ModelController:
                 "siren_detected": siren_detected,
                 "preemption_buffer_sec": preemption_buffer_sec,
             }
-            fairness_info["reason"] = "bypassed_during_emergency"
-            fairness_info["selected_lane"] = emergency_lane
-            fairness_info["selected_duration"] = emergency_duration
         else:
             if locked_control is not None:
-                fairness_info = {
-                    **locked_control.get("fairness", {}),
-                    "mode": fairness_mode_resolved,
-                    "applied": False,
-                    "reason": "cycle_lock_reuse",
-                    "selected_lane": locked_control.get("selected_lane")
-                    or self._lane_from_direction(
-                        str(locked_control.get(
-                            "decision", {}).get("direction", "N"))
-                    ),
-                    "selected_duration": int(locked_control.get("decision", {}).get("duration", 0)),
-                    "baseline_lane": self._lane_from_direction(
-                        str(baseline_decision.get("direction", "N"))
-                    ),
-                    "baseline_duration": int(baseline_decision.get("duration", 0)),
-                }
+                decision = {**locked_control.get("decision", {})}
             else:
-                decision, fairness_info = self._apply_fairness_policy(
-                    lane_counts=lane_counts,
-                    baseline_decision=baseline_decision,
-                    fairness_mode=fairness_mode_resolved,
-                )
+                decision = {**baseline_decision}
             emergency = {
                 **emergency,
                 "status": "cleared" if was_emergency_active else "inactive",
@@ -409,12 +362,6 @@ class ModelController:
                 "preemption_buffer_sec": 0,
             }
 
-        if update_fairness_state:
-            self._update_fairness_state(
-                lane_counts=lane_counts,
-                served_lane=fairness_info.get("selected_lane"),
-            )
-
         self._last_emergency_active = emergency_detected
 
         return {
@@ -425,10 +372,6 @@ class ModelController:
             "emergency": emergency,
             "siren": siren,
             "baseline_decision": baseline_decision,
-            "fairness": {
-                **fairness_info,
-                "lane_state": self._fairness_snapshot(),
-            },
             "diagnostics": {
                 "active_models": {
                     "traffic_detector": self._traffic_detector.is_loaded,
@@ -438,8 +381,6 @@ class ModelController:
                     "dqn_controller": self._signal_controller.mode == "dqn",
                 },
                 "controller_mode": decision.get("mode", self.mode),
-                "fairness_mode": fairness_mode_resolved,
-                "fairness_applied": bool(fairness_info.get("applied", False)),
                 "emergency_visual_detected": emergency_visual_detected,
                 "siren_detected": siren_detected,
                 "predictive_control": predictive_control,
@@ -620,12 +561,6 @@ class ModelController:
             self._predictive_last_selected_lane = selected_lane
             self._predictive_hold_cycles = 1
 
-    def _normalize_fairness_mode(self, fairness_mode: str | None) -> str:
-        mode = str(fairness_mode or cfg.FAIRNESS_DEFAULT_MODE).strip().lower()
-        if mode not in FAIRNESS_MODES:
-            return str(cfg.FAIRNESS_DEFAULT_MODE)
-        return mode
-
     def _encode_decision_action(self, direction: str, duration: int) -> int:
         resolved_direction = str(direction or "N").strip().upper()
         if resolved_direction not in DIRECTIONS:
@@ -640,159 +575,6 @@ class ModelController:
 
     def _lane_from_direction(self, direction: str) -> str:
         return DIRECTION_TO_LANE.get(direction, "laneN")
-
-    def _fairness_snapshot(self) -> dict[str, dict[str, float | int]]:
-        return {
-            lane: {
-                "wait_seconds": float(self._fairness_state[lane]["wait_seconds"]),
-                "missed_turns": int(self._fairness_state[lane]["missed_turns"]),
-            }
-            for lane in LANE_KEYS
-        }
-
-    def _apply_fairness_policy(
-        self,
-        lane_counts: dict[str, int],
-        baseline_decision: dict[str, Any],
-        fairness_mode: str,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        baseline_lane = self._lane_from_direction(
-            str(baseline_decision.get("direction", "N")))
-        baseline_duration = int(baseline_decision.get("duration", 0))
-
-        info = {
-            "mode": fairness_mode,
-            "applied": False,
-            "reason": None,
-            "selected_lane": baseline_lane,
-            "selected_duration": baseline_duration,
-            "baseline_lane": baseline_lane,
-            "baseline_duration": baseline_duration,
-            "lane_state": self._fairness_snapshot(),
-        }
-
-        if fairness_mode == "off":
-            info["reason"] = "fairness_disabled"
-            return {**baseline_decision}, info
-
-        eligible = [lane for lane in LANE_KEYS if lane_counts.get(lane, 0) > 0]
-        if not eligible:
-            info["reason"] = "no_queued_vehicles"
-            return {**baseline_decision}, info
-
-        wait_threshold = float(cfg.FAIRNESS_WAIT_THRESHOLD_SEC)
-        missed_threshold = int(cfg.FAIRNESS_MISSED_TURNS_THRESHOLD)
-
-        hard_candidates = [
-            lane
-            for lane in eligible
-            if self._fairness_state[lane]["wait_seconds"] >= wait_threshold
-            and self._fairness_state[lane]["missed_turns"] >= missed_threshold
-        ]
-
-        if fairness_mode == "hard" and hard_candidates:
-            forced_lane = max(
-                hard_candidates,
-                key=lambda lane: (
-                    self._fairness_state[lane]["wait_seconds"],
-                    self._fairness_state[lane]["missed_turns"],
-                    lane_counts.get(lane, 0),
-                ),
-            )
-            if forced_lane != baseline_lane:
-                direction = forced_lane.replace("lane", "")
-                override_duration = max(
-                    int(cfg.MIN_GREEN),
-                    min(int(cfg.MAX_GREEN), baseline_duration),
-                )
-                decision = {
-                    **{lane: 0 for lane in LANE_KEYS},
-                    forced_lane: override_duration,
-                    "direction": direction,
-                    "duration": override_duration,
-                    "action": self._encode_decision_action(direction, override_duration),
-                    "mode": "fairness-hard-override",
-                }
-                info.update(
-                    {
-                        "applied": True,
-                        "reason": "hard_threshold_breach",
-                        "selected_lane": forced_lane,
-                        "selected_duration": override_duration,
-                    }
-                )
-                return decision, info
-
-            info["reason"] = "hard_threshold_breach_baseline_already_serves"
-            return {**baseline_decision}, info
-
-        scores: dict[str, float] = {}
-        for lane in eligible:
-            wait_ratio = self._fairness_state[lane]["wait_seconds"] / \
-                max(wait_threshold, 1.0)
-            missed_ratio = self._fairness_state[lane]["missed_turns"] / max(
-                float(missed_threshold), 1.0
-            )
-            queue_score = float(lane_counts.get(lane, 0))
-            scores[lane] = (
-                queue_score
-                + wait_ratio * float(cfg.FAIRNESS_SOFT_WAIT_WEIGHT)
-                + missed_ratio * float(cfg.FAIRNESS_SOFT_MISSED_WEIGHT)
-            )
-
-        best_lane = max(scores, key=scores.get)
-        baseline_score = scores.get(baseline_lane, -1.0)
-        best_score = scores.get(best_lane, -1.0)
-        margin = float(cfg.FAIRNESS_SOFT_OVERRIDE_MARGIN)
-
-        if (
-            fairness_mode == "soft"
-            and best_lane != baseline_lane
-            and (best_score - baseline_score) >= margin
-        ):
-            direction = best_lane.replace("lane", "")
-            override_duration = max(
-                int(cfg.MIN_GREEN),
-                min(int(cfg.MAX_GREEN), baseline_duration),
-            )
-            decision = {
-                **{lane: 0 for lane in LANE_KEYS},
-                best_lane: override_duration,
-                "direction": direction,
-                "duration": override_duration,
-                "action": self._encode_decision_action(direction, override_duration),
-                "mode": "fairness-soft-override",
-            }
-            info.update(
-                {
-                    "applied": True,
-                    "reason": "soft_priority_margin",
-                    "selected_lane": best_lane,
-                    "selected_duration": override_duration,
-                }
-            )
-            return decision, info
-
-        info["reason"] = "baseline_retained"
-        return {**baseline_decision}, info
-
-    def _update_fairness_state(
-        self,
-        lane_counts: dict[str, int],
-        served_lane: str | None,
-    ) -> None:
-        cycle_increment = float(cfg.INFERENCE_INTERVAL)
-        for lane in LANE_KEYS:
-            queue_count = int(lane_counts.get(lane, 0))
-            if lane == served_lane:
-                self._fairness_state[lane]["wait_seconds"] = 0.0
-                self._fairness_state[lane]["missed_turns"] = 0
-            elif queue_count > 0:
-                self._fairness_state[lane]["wait_seconds"] += cycle_increment
-                self._fairness_state[lane]["missed_turns"] += 1
-            else:
-                self._fairness_state[lane]["wait_seconds"] = 0.0
-                self._fairness_state[lane]["missed_turns"] = 0
 
     def online_update(
         self,
@@ -812,13 +594,6 @@ class ModelController:
     def reset_runtime_state(self) -> None:
         self._last_lane_counts = {k: 0 for k in LANE_KEYS}
         self._last_emergency_active = False
-        self._fairness_state = {
-            lane: {
-                "wait_seconds": 0.0,
-                "missed_turns": 0,
-            }
-            for lane in LANE_KEYS
-        }
         self._predictive_ema_counts = {lane: 0.0 for lane in LANE_KEYS}
         self._predictive_last_selected_lane = None
         self._predictive_hold_cycles = 0

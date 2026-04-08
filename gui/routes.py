@@ -7,14 +7,12 @@ import cv2
 import numpy as np
 from flask import Blueprint, jsonify, render_template, request
 
-from config import DIRECTION_TO_LANE, FAIRNESS_DEFAULT_MODE, LANE_KEYS
+from config import DIRECTION_TO_LANE, LANE_KEYS
 from control.model_controller import ModelController
 from control.schema import normalize_lane_counts
 
 bp = Blueprint("gui", __name__)
 controller = ModelController()
-
-FAIRNESS_MODES = {"off", "soft", "hard"}
 
 # Initialize demo cache on controller (persists across requests)
 controller._demo_cache = {
@@ -33,13 +31,6 @@ controller._demo_cache = {
 def _get_demo_cache() -> dict[str, Any]:
     """Get demo cache from controller (persists across requests)."""
     return controller._demo_cache
-
-
-def _normalize_fairness_mode(mode: Any) -> str:
-    resolved = str(mode or FAIRNESS_DEFAULT_MODE).strip().lower()
-    if resolved not in FAIRNESS_MODES:
-        return str(FAIRNESS_DEFAULT_MODE)
-    return resolved
 
 
 def _decode_image(field_name: str) -> np.ndarray:
@@ -90,7 +81,6 @@ def _build_simulation_payload(result: dict, cycle_meta: dict[str, Any] | None = 
                            selected_lane else 0) for lane in LANE_KEYS}
 
     emergency = result.get("emergency", {})
-    fairness = result.get("fairness", {})
     emergency_detected = bool(emergency.get("detected", False))
     emergency_status = str(
         emergency.get("status") or (
@@ -129,7 +119,6 @@ def _build_simulation_payload(result: dict, cycle_meta: dict[str, Any] | None = 
         "seed": int(time.time() * 1000),
         "tick_interval_sec": 3,
         "preemption_buffer_sec": int(emergency.get("preemption_buffer_sec", 0) or 0),
-        "fairness": fairness,
     }
     if cycle_meta:
         payload.update(cycle_meta)
@@ -140,14 +129,11 @@ def _build_response(
     result: dict,
     payload: dict,
     extra: dict | None = None,
-    *,
-    include_fairness_telemetry: bool = True,
 ) -> dict:
     detection = result.get("detection", {})
     density = result.get("density", {})
     emergency = result.get("emergency", {})
     siren = result.get("siren", {})
-    fairness = result.get("fairness", {})
     baseline_decision = result.get("baseline_decision", {})
 
     model_outputs = {
@@ -195,15 +181,6 @@ def _build_response(
             "baseline_duration": baseline_decision.get("duration"),
         },
     }
-    if include_fairness_telemetry:
-        model_outputs["fairness"] = {
-            "mode": fairness.get("mode"),
-            "applied": bool(fairness.get("applied", False)),
-            "reason": fairness.get("reason"),
-            "selected_lane": fairness.get("selected_lane"),
-            "baseline_lane": fairness.get("baseline_lane"),
-            "lane_state": fairness.get("lane_state", {}),
-        }
 
     response = {
         "result": result,
@@ -218,8 +195,6 @@ def _build_response(
         "emergency": emergency,
         "model_outputs": model_outputs,
     }
-    if include_fairness_telemetry:
-        response["fairness"] = fairness
 
     if extra:
         response.update(extra)
@@ -463,11 +438,9 @@ def run_cycle():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    fairness_mode = _normalize_fairness_mode(request.form.get("fairness_mode"))
     result = controller.decide_from_lane_frames(
         lane_frames,
         audio_bytes=audio_bytes,
-        fairness_mode=fairness_mode,
     )
     payload = _build_simulation_payload(result)
     return jsonify(_build_response(result, payload))
@@ -482,14 +455,12 @@ def next_cycle():
 
     lane_counts = {lane: int(lane_counts_raw.get(lane, 0))
                    for lane in LANE_KEYS}
-    fairness_mode = _normalize_fairness_mode(body.get("fairness_mode"))
     current_active_lane = body.get("current_active_lane")
 
     try:
         result = controller.decide_next_cycle_from_lane_counts(
             lane_counts=lane_counts,
             current_active_lane=str(current_active_lane or "").strip() or None,
-            fairness_mode=fairness_mode,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
