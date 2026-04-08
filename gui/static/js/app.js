@@ -70,6 +70,8 @@ const world = {
   assignedDurationMs: 10000,
   laneTimings: {},
   phaseCycles: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
+  elapsedMs: 0,
+  baselineEstimateMs: 0,
   awaitingNext: false,
   waitingServer: false,
   autoNextPending: false,
@@ -178,6 +180,77 @@ function renderModelOutputs(modelOutputs = {}) {
   dqnActionNode.textContent = dqn.action ?? "-";
   dqnDirectionNode.textContent = dqn.direction || "-";
   dqnDurationNode.textContent = dqn.duration ? `${dqn.duration}s` : "-";
+  renderComparisonMetrics();
+}
+
+function renderComparisonMetrics() {
+  const baselineNode = document.getElementById("baselineEstimate");
+  const runtimeNode = document.getElementById("dqnRuntime");
+  const speedupNode = document.getElementById("speedupLabel");
+
+  if (baselineNode) {
+    baselineNode.textContent = world.baselineEstimateMs > 0
+      ? `${Math.round(world.baselineEstimateMs / 1000)}s`
+      : "-";
+  }
+  if (runtimeNode) {
+    runtimeNode.textContent = world.elapsedMs > 0
+      ? `${Math.round(world.elapsedMs / 1000)}s`
+      : "-";
+  }
+  if (speedupNode) {
+    if (world.baselineEstimateMs > 0 && world.elapsedMs > 0) {
+      const ratio = world.baselineEstimateMs / world.elapsedMs;
+      if (ratio === 1) {
+        speedupNode.textContent = "same as baseline";
+      } else if (ratio > 1) {
+        speedupNode.textContent = `${ratio.toFixed(2)}x faster`;
+      } else {
+        speedupNode.textContent = `${(1 / ratio).toFixed(2)}x slower`;
+      }
+    } else {
+      speedupNode.textContent = "-";
+    }
+  }
+}
+
+function estimateBaselineTimeMs(
+  counts,
+  greenDurationSec,
+  yellowMs,
+  clearRateMin,
+  clearRateMax
+) {
+  const laneOrder = ["laneN", "laneS", "laneE", "laneW"];
+  const avgClearRate = (clearRateMin + clearRateMax) / 2;
+  const greenMs = greenDurationSec * 1000;
+  const cycleMs = greenMs + yellowMs;
+  const queue = {
+    laneN: counts.laneN || 0,
+    laneS: counts.laneS || 0,
+    laneE: counts.laneE || 0,
+    laneW: counts.laneW || 0,
+  };
+  let total = 0;
+
+  while (laneOrder.some((lane) => queue[lane] > 0)) {
+    for (const lane of laneOrder) {
+      if (!laneOrder.some((l) => queue[l] > 0)) {
+        break;
+      }
+      const cars = queue[lane];
+      if (cars > 0) {
+        const removed = Math.min(cars, Math.round(avgClearRate * greenDurationSec));
+        queue[lane] = Math.max(0, cars - removed);
+      }
+      total += cycleMs;
+      if (!laneOrder.some((l) => queue[l] > 0)) {
+        break;
+      }
+    }
+  }
+
+  return total;
 }
 
 function applyEmergencyVisualState(sim) {
@@ -455,6 +528,9 @@ function pauseForNextStep() {
 
 function tickPhase(dtMs) {
   if (world.phaseType === "done" || world.phaseType === "idle" || world.phaseType === "paused") {
+    updatePhaseText();
+    renderCounts();
+    renderComparisonMetrics();
     return;
   }
 
@@ -535,6 +611,9 @@ function animationLoop(ts) {
   }
   const dtMs = Math.min(50, ts - lastTs);
   lastTs = ts;
+  if (!world.finished && runToken !== 0) {
+    world.elapsedMs += dtMs;
+  }
 
   tickPhase(dtMs);
   tickMovingCars(dtMs);
@@ -569,6 +648,17 @@ function applyDecision(payload, initializeCounts = false) {
   world.seededRand = mulberry32(sim.seed || Date.now());
   world.preemptionBufferMs = (sim.preemption_buffer_sec || 0) * 1000;
   applyEmergencyVisualState(sim);
+  if (initializeCounts) {
+    world.elapsedMs = 0;
+    world.baselineEstimateMs = estimateBaselineTimeMs(
+      sim.initial_counts,
+      30,
+      world.yellowMs,
+      world.clearRateMin,
+      world.clearRateMax
+    );
+    renderComparisonMetrics();
+  }
 
   modeValue.textContent = decision.mode || "-";
   directionValue.textContent = decision.direction || "-";
@@ -627,6 +717,8 @@ function resetWorld() {
   world.awaitingNext = false;
   world.waitingServer = false;
   world.autoNextPending = false;
+  world.elapsedMs = 0;
+  world.baselineEstimateMs = 0;
   world.lastServedLane = null;
   world.pendingDecision = null;
   world.preemptionBufferMs = 0;
@@ -713,6 +805,9 @@ async function requestNextCycle() {
     }
 
     applyDecision(payload, false);
+    renderCounts();
+    updatePhaseText();
+    renderComparisonMetrics();
     setMessage("Next cycle started.");
   } catch (error) {
     setMessage(error.message || "Unexpected error", true);

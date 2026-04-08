@@ -30,8 +30,8 @@ body {
 }
 
 .page-shell {
-  width: min(1080px, calc(100% - 2rem));
-  margin: 0 auto;
+  /* width: min(1080px, calc(100% - 2rem)); */
+  margin: 0 20px;
   padding: 1.5rem 0 3rem;
 }
 
@@ -77,6 +77,21 @@ h1 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.9rem;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.dashboard-grid .panel {
+  margin-bottom: 0;
+}
+
+.dashboard-grid .result-panel {
+  grid-row: span 2;
 }
 
 .demo-link {
@@ -372,6 +387,26 @@ button:disabled {
   display: grid;
   gap: 0.8rem;
   align-content: start;
+}
+
+.sidebar-metrics {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid rgba(31, 36, 25, 0.16);
+}
+
+.sidebar-metrics div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.sidebar-metrics strong {
+  font-size: 0.95rem;
 }
 
 .telemetry h3 {
