@@ -57,7 +57,7 @@
 - **Action space:** 224 = 4 directions × 56 durations (5 s – 60 s, 1 s steps)
 - **Action decode:** `direction = action // 56`, `duration = (action % 56) + 5`
 - **Architecture:** `Linear(6 → 128) → ReLU → Linear(128 → 64) → ReLU → Linear(64 → 224)` (~42 k params)
-- **Training:** Double-DQN with frozen target network, Huber loss, Adam optimiser, experience replay
+- **Training:** Vanilla-DQN with frozen target network, Huber loss, Adam optimiser, experience replay
 - **Reward:** `throughput − 0.05 × total_waiting − 0.001 × duration`
 - **Weights:** `models/dqn_signal_optimizer.pt`
 - **Runtime wrapper:** TODO
