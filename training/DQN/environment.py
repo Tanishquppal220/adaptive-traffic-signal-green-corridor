@@ -46,7 +46,7 @@ ARRIVAL_RATE_MEAN = 0.8    # vehicles / second / lane  (Poisson λ, off-peak)
 ARRIVAL_RATE_PEAK = 2.0    # vehicles / second / lane  (peak hour)
 DISCHARGE_RATE    = 1.5    # vehicles / second leaving the green lane
 MAX_QUEUE         = 30     # hard cap on queue length per lane
-WAITING_PENALTY   = 0.05   # reward deduction per waiting vehicle
+WAITING_PENALTY   = 0.01   # reward deduction per waiting vehicle
 DURATION_COST     = 0.001  # reward deduction per second of chosen green
 MAX_VEHICLES_NORM = 30.0   # divisor used to normalise counts → [0, 1]
 
@@ -208,7 +208,7 @@ class TrafficEnv:
         #    throughput = fraction of the QUEUE cleared (not fraction of
         #    discharge capacity). This incentivises picking a duration long
         #    enough to actually drain the chosen lane.
-        throughput    = discharged / max(1.0, queue_before)
+        throughput    = 2*discharged / max(1.0, queue_before)
         total_waiting = float(self.queues.sum())
         reward = (
               throughput
