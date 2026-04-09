@@ -56,6 +56,12 @@
 
             <section class="panel result-panel">
                 <h2>Step 2: Model Decision</h2>
+                <div class="decision-grid">
+                    <div><strong>Mode</strong><span id="modeValue">-</span></div>
+                    <div><strong>Chosen Direction</strong><span id="directionValue">-</span></div>
+                    <div><strong>Green Duration</strong><span id="durationValue">-</span></div>
+                    <div><strong>Action Index</strong><span id="actionValue">-</span></div>
+                </div>
 
                 <h3 class="subsection-title">DQN Timings Per Lane</h3>
                 <table class="timing-table" aria-label="Assigned green timings by lane">
@@ -94,13 +100,15 @@
                 <div class="model-grid">
                     <article class="model-card">
                         <h4>Traffic Detector</h4>
+                        <p>Mode: <strong id="detectorMode">-</strong></p>
                         <p>Total Vehicles: <strong id="detectorTotal">-</strong></p>
-                        <p><strong id="detectorCounts">-</strong></p>
+                        <p>N/S/E/W: <strong id="detectorCounts">-</strong></p>
                     </article>
                     <article class="model-card">
                         <h4>Density Predictor</h4>
+                        <p>Mode: <strong id="densityMode">-</strong></p>
                         <p>Horizon: <strong id="densityHorizon">-</strong></p>
-                        <p><strong id="densityValues">-</strong></p>
+                        <p>N/S/E/W: <strong id="densityValues">-</strong></p>
                     </article>
                     <article class="model-card">
                         <h4>Emergency Classifier</h4>
@@ -113,10 +121,12 @@
                         <h4>Siren Detector</h4>
                         <p>Detected: <strong id="sirenDetected">-</strong></p>
                         <p>Confidence: <strong id="sirenConfidence">-</strong></p>
+                        <p>Mode: <strong id="sirenMode">-</strong></p>
                         <p>Sample Rate: <strong id="sirenSampleRate">-</strong></p>
                     </article>
                     <article class="model-card">
                         <h4>DQN Decision</h4>
+                        <p>Mode: <strong id="dqnMode">-</strong></p>
                         <p>Action: <strong id="dqnAction">-</strong></p>
                         <p>Direction: <strong id="dqnDirection">-</strong></p>
                         <p>Duration: <strong id="dqnDuration">-</strong></p>
@@ -129,6 +139,9 @@
             <section class="panel sim-panel">
                 <h2>Step 3: Visual Simulation</h2>
                 <div id="simStatus" class="sim-status">Waiting for upload...</div>
+                <div class="actions sim-actions">
+                    <button id="nextBtn" type="button" class="ghost" disabled>Next Step</button>
+                </div>
                 <div class="sim-layout">
                     <div class="canvas-wrap">
                         <canvas id="intersectionCanvas" width="980" height="560"
