@@ -514,6 +514,9 @@ function drawSignals(g) {
     laneW: { x: g.stopW + 16, y: g.yW + 30 },
   };
 
+  const showCountdown = world.activeLane && (world.signal === "green" || world.signal === "yellow");
+  const remainingSeconds = showCountdown ? Math.max(0, Math.ceil(world.phaseTimeMs / 1000)) : null;
+
   laneKeys.forEach((lane) => {
     const p = signals[lane];
     const isActive = world.activeLane === lane;
@@ -537,6 +540,20 @@ function drawSignals(g) {
       ctx.fillStyle = lamp.on ? lamp.c : "#3d3d3d";
       ctx.fill();
     });
+
+    if (showCountdown && isActive) {
+      const text = `${remainingSeconds}s`;
+      ctx.font = "600 14px IBM Plex Mono";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.75)";
+      ctx.lineWidth = 4;
+      const x = p.x + (lane === "laneE" ? -22 : lane === "laneW" ? 22 : 0);
+      const y = p.y + (lane === "laneN" ? -24 : lane === "laneS" ? 24 : 0);
+      ctx.strokeText(text, x, y);
+      ctx.fillText(text, x, y);
+    }
   });
 }
 
