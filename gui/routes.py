@@ -237,13 +237,11 @@ def status():
 def run_cycle():
     try:
         lane_frames = {lane: _decode_image(lane) for lane in LANE_KEYS}
-        audio_bytes = _decode_audio("sirenAudio")
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
     result = controller.decide_from_lane_frames(
         lane_frames,
-        audio_bytes=audio_bytes,
     )
     payload = _build_simulation_payload(result)
     return jsonify(_build_response(result, payload))

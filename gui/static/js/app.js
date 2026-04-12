@@ -37,10 +37,6 @@ const emergencyLabelNode = byId("emergencyLabel");
 const emergencyConfidenceNode = byId("emergencyConfidence");
 const emergencyDirectionNode = byId("emergencyDirection");
 
-const sirenDetectedNode = byId("sirenDetected");
-const sirenConfidenceNode = byId("sirenConfidence");
-const sirenSampleRateNode = byId("sirenSampleRate");
-
 const dqnActionNode = byId("dqnAction");
 const dqnDirectionNode = byId("dqnDirection");
 const dqnDurationNode = byId("dqnDuration");
@@ -262,9 +258,6 @@ function renderModelOutputs(modelOutputs = {}, updateAll = true) {
     setText(emergencyLabelNode, "Simulated");
     setText(emergencyConfidenceNode, "N/A");
     setText(emergencyDirectionNode, "N/A");
-    setText(sirenDetectedNode, "NO (simulated)");
-    setText(sirenConfidenceNode, "N/A");
-    setText(sirenSampleRateNode, "N/A");
   } else {
     const emergencyDetectedText = emergency.detected
       ? "YES"
@@ -284,16 +277,6 @@ function renderModelOutputs(modelOutputs = {}, updateAll = true) {
       setText(emergencyDirectionNode, emergency.direction || emergency.status || "-", "-");
     }
 
-    const sirenDetectedText = siren.detected ? "YES" : "NO";
-    setText(sirenDetectedNode, siren.cached ? `${sirenDetectedText} (cached)` : sirenDetectedText);
-    setText(sirenConfidenceNode, fmtFixed(siren.confidence));
-    setText(
-      sirenSampleRateNode,
-      asFinite(siren.sample_rate) !== null
-        ? `${Math.round(asFinite(siren.sample_rate))}Hz${siren.cached ? " (cached)" : ""}`
-        : (siren.cached ? "cached" : "-"),
-      "-"
-    );
   }
 
   renderDqnOutputs(dqn);

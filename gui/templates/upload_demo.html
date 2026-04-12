@@ -43,7 +43,7 @@
 
         <div class="dashboard-grid">
             <section class="panel upload-panel">
-                <h2>Step 1: Upload Lane Images + Siren Audio</h2>
+                <h2>Step 1: Upload Lane Images</h2>
                 <form id="laneUploadForm" class="upload-grid" enctype="multipart/form-data">
                     <label class="upload-card">
                         <span>North Lane</span>
@@ -65,13 +65,8 @@
                         <input type="file" name="laneW" accept="image/*" required>
                         <small class="file-name" id="fileName-laneW">No file selected</small>
                     </label>
-                    <label class="upload-card upload-card-wide">
-                        <span>Siren Audio (WAV)</span>
-                        <input type="file" name="sirenAudio" accept="audio/wav,audio/wave,.wav" required>
-                        <small class="file-name" id="fileName-sirenAudio">No file selected</small>
-                    </label>
                     <p class="upload-hint">
-                        Required: 4 lane images + 1 WAV file. If backend fails, demo auto-falls back to simulated mode.
+                        Required: 4 lane images. Emergency is detected from the visual classifier.
                     </p>
                     <div class="actions">
                         <button id="runBtn" type="submit">Start Demo</button>
@@ -135,12 +130,6 @@
                         <p>Label: <strong id="emergencyLabel">-</strong></p>
                         <p>Confidence: <strong id="emergencyConfidence">-</strong></p>
                         <p>Direction: <strong id="emergencyDirection">-</strong></p>
-                    </article>
-                    <article class="model-card">
-                        <h4>Siren Detector</h4>
-                        <p>Detected: <strong id="sirenDetected">-</strong></p>
-                        <p>Confidence: <strong id="sirenConfidence">-</strong></p>
-                        <p>Sample Rate: <strong id="sirenSampleRate">-</strong></p>
                     </article>
                     <article class="model-card">
                         <h4>DQN Decision</h4>

@@ -15,7 +15,7 @@ from control.schema import (
     top_direction,
 )
 from control.signal_controller import SignalController
-from control.siren_detector import SirenDetector
+# from control.siren_detector import SirenDetector  # disabled: rely on visual emergency classifier only
 from control.traffic_detector import TrafficDetector
 from training.DQN.environment import encode_action
 
@@ -25,7 +25,7 @@ class ModelController:
 
     Pipeline:
             frame(s) -> traffic detection -> emergency classification ->
-            siren detection -> density prediction -> DQN/proportional decision
+            density prediction -> DQN/proportional decision
     """
 
     def __init__(
@@ -43,9 +43,9 @@ class ModelController:
         emergency_status = "loaded" if self._emergency_classifier.is_loaded else "not loaded"
         print(f"🚑 EmergencyClassifier {emergency_status}")
 
-        self._siren_detector = SirenDetector()
-        siren_status = "loaded" if self._siren_detector.is_loaded else "not loaded"
-        print(f"🔊 SirenDetector {siren_status}")
+        # SirenDetector disabled due to overfitting; emergency decisions now rely only on the visual classifier.
+        self._siren_detector = None
+        print("🔇 SirenDetector disabled")
 
         self._density_predictor = DensityPredictor()
         density_status = "loaded" if self._density_predictor.is_loaded else "not loaded"
@@ -66,7 +66,7 @@ class ModelController:
         self._predictive_last_selected_lane: str | None = None
         self._predictive_hold_cycles = 0
         self._cached_emergency_override: dict[str, Any] | None = None
-        self._cached_siren_detection: dict[str, Any] | None = None
+        # self._cached_siren_detection: dict[str, Any] | None = None
 
     @property
     def mode(self) -> str:
@@ -77,12 +77,12 @@ class ModelController:
             "mode": self.mode,
             "traffic_detector": self._traffic_detector.status(),
             "emergency_classifier": self._emergency_classifier.status(),
-            "siren_detector": self._siren_detector.status(),
+            "siren_detector": {"enabled": False, "status": "disabled"},
             "density_predictor": self._density_predictor.status(),
             "signal_controller": self._signal_controller.status(),
             "cached_cycle_context": {
                 "has_emergency": self._cached_emergency_override is not None,
-                "has_siren": self._cached_siren_detection is not None,
+                "has_siren": False,
             },
             "predictive_control": {
                 "enabled": bool(cfg.PREDICTIVE_CONTROL_ENABLED),
@@ -161,7 +161,13 @@ class ModelController:
             lane: int(emergency_lane_counts.get(lane, 0)) for lane in LANE_KEYS
         }
 
-        siren = self._siren_detector.detect(audio_bytes)
+        # Siren audio is ignored; emergency uses only the visual classifier.
+        siren = {
+            "detected": False,
+            "confidence": 0.0,
+            "mode": "disabled",
+            "sample_rate": None,
+        }
 
         merged_detection = {
             "lane_counts": lane_counts,
@@ -186,10 +192,7 @@ class ModelController:
         )
 
     def has_cached_cycle_context(self) -> bool:
-        return (
-            self._cached_emergency_override is not None
-            and self._cached_siren_detection is not None
-        )
+        return self._cached_emergency_override is not None
 
     def decide_next_cycle_from_lane_counts(
         self,
@@ -202,7 +205,12 @@ class ModelController:
 
         lane_counts = normalize_lane_counts(lane_counts)
         emergency_override = {**(self._cached_emergency_override or {})}
-        siren_override = {**(self._cached_siren_detection or {})}
+        siren_override = {
+            "detected": False,
+            "confidence": 0.0,
+            "mode": "disabled",
+            "sample_rate": None,
+        }
 
         cached_emergency_lane = str(
             emergency_override.get("emergency_lane") or ""
@@ -215,7 +223,7 @@ class ModelController:
 
         cached_override_active = bool(
             emergency_override.get("detected", False)
-        ) and bool(siren_override.get("detected", False))
+        )
         emergency_lane_cleared = (
             cached_override_active
             and cached_emergency_lane in LANE_KEYS
@@ -233,13 +241,7 @@ class ModelController:
                 "visual_detected": False,
                 "siren_detected": False,
             }
-            siren_override = {
-                **siren_override,
-                "detected": False,
-                "confidence": 0.0,
-            }
             self._cached_emergency_override = {**emergency_override}
-            self._cached_siren_detection = {**siren_override}
 
         detection_payload = {
             "lane_counts": lane_counts,
@@ -298,16 +300,20 @@ class ModelController:
         if siren_override is not None:
             siren = siren_override
         else:
-            siren = self._siren_detector.detect(None)
+            siren = {
+                "detected": False,
+                "confidence": 0.0,
+                "mode": "disabled",
+                "sample_rate": None,
+            }
 
         if cache_cycle_context:
             self._cached_emergency_override = {**emergency}
-            self._cached_siren_detection = {**siren}
 
         density = self._density_predictor.predict(lane_counts)
         emergency_visual_detected = bool(emergency.get("detected", False))
-        siren_detected = bool(siren.get("detected", False))
-        emergency_detected = emergency_visual_detected and siren_detected
+        siren_detected = False
+        emergency_detected = emergency_visual_detected
         was_emergency_active = self._last_emergency_active
 
         predictive_control = self._build_predictive_control_inputs(
@@ -392,7 +398,7 @@ class ModelController:
                 "baseline_duration": base_duration,
                 "adjusted_duration": emergency_duration,
                 "emergency_lane": emergency_lane,
-                "gated_by_siren": True,
+                "gated_by_siren": False,
                 "visual_detected": emergency_visual_detected,
                 "siren_detected": siren_detected,
                 "preemption_buffer_sec": preemption_buffer_sec,
@@ -406,14 +412,14 @@ class ModelController:
                 **emergency,
                 "status": "cleared" if was_emergency_active else "inactive",
                 "release_reason": (
-                    "siren_not_detected"
-                    if emergency_visual_detected and not siren_detected
-                    else ("ambulance_not_detected" if was_emergency_active else None)
+                    None
+                    if not was_emergency_active
+                    else "ambulance_not_detected"
                 ),
                 "baseline_duration": int(baseline_decision.get("duration", 0)),
                 "adjusted_duration": None,
                 "emergency_lane": None,
-                "gated_by_siren": emergency_visual_detected and not siren_detected,
+                "gated_by_siren": False,
                 "visual_detected": emergency_visual_detected,
                 "siren_detected": siren_detected,
                 "preemption_buffer_sec": 0,
@@ -439,7 +445,7 @@ class ModelController:
                 "active_models": {
                     "traffic_detector": self._traffic_detector.is_loaded,
                     "emergency_classifier": self._emergency_classifier.is_loaded,
-                    "siren_detector": self._siren_detector.is_loaded,
+                    "siren_detector": False,
                     "density_predictor": self._density_predictor.is_loaded,
                     "dqn_controller": self._signal_controller.mode == "dqn",
                 },
@@ -731,7 +737,7 @@ class ModelController:
         self._predictive_last_selected_lane = None
         self._predictive_hold_cycles = 0
         self._cached_emergency_override = None
-        self._cached_siren_detection = None
+        # self._cached_siren_detection = None
 
 
 __all__ = ["ModelController", "DIRECTIONS", "LANE_KEYS"]
