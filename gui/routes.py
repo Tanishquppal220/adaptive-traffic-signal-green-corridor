@@ -63,29 +63,14 @@ def _build_simulation_payload(result: dict, cycle_meta: dict[str, Any] | None = 
                            selected_lane else 0) for lane in LANE_KEYS}
 
     emergency = result.get("emergency", {})
-    detection = result.get("detection", {})
-    context_cached = str(detection.get("mode", "")) == "iterative-cycle"
     emergency_detected = bool(emergency.get("detected", False))
-    emergency_visual_detected = bool(
-        emergency.get("visual_detected", emergency_detected)
-    )
     emergency_status = str(
         emergency.get("status") or (
             "active" if emergency_detected else "inactive")
     )
-    emergency_active = emergency_status == "active"
-    emergency_lane = str(emergency.get("emergency_lane") or "").strip() or None
-    if emergency_active and emergency_lane not in LANE_KEYS:
-        emergency_direction = str(emergency.get("direction") or "").strip().upper()
-        emergency_lane = DIRECTION_TO_LANE.get(emergency_direction)
-    emergency_visual_lane = str(emergency.get("emergency_lane") or "").strip() or None
-    if emergency_visual_detected and emergency_visual_lane not in LANE_KEYS:
-        visual_direction = str(emergency.get("direction") or "").strip().upper()
-        emergency_visual_lane = DIRECTION_TO_LANE.get(visual_direction)
-
     emergency_release_reason = emergency.get("release_reason")
     emergency_message = ""
-    if emergency_active:
+    if emergency_detected:
         label = emergency.get("label") or "emergency vehicle"
         confidence = float(emergency.get("confidence", 0.0))
         direction = emergency.get("direction") or selected_direction
@@ -106,12 +91,7 @@ def _build_simulation_payload(result: dict, cycle_meta: dict[str, Any] | None = 
         "decision_scope": "single_lane",
         "active_lane_only_duration_applied": True,
         "mode": result.get("mode", "unknown"),
-        "context_cached": context_cached,
         "emergency_detected": emergency_detected,
-        "emergency_visual_detected": emergency_visual_detected,
-        "emergency_active": emergency_active,
-        "emergency_lane": emergency_lane,
-        "emergency_visual_lane": emergency_visual_lane,
         "emergency_status": emergency_status,
         "emergency_release_reason": emergency_release_reason,
         "emergency_message": emergency_message,
@@ -137,7 +117,6 @@ def _build_response(
     emergency = result.get("emergency", {})
     siren = result.get("siren", {})
     baseline_decision = result.get("baseline_decision", {})
-    context_cached = str(detection.get("mode", "")) == "iterative-cycle"
 
     model_outputs = {
         "detector": {
@@ -157,15 +136,10 @@ def _build_response(
         },
         "emergency": {
             "detected": bool(emergency.get("detected", False)),
-            "visual_detected": bool(
-                emergency.get("visual_detected", emergency.get("detected", False))
-            ),
             "status": emergency.get("status"),
             "label": emergency.get("label"),
             "confidence": float(emergency.get("confidence", 0.0)),
             "direction": emergency.get("direction"),
-            "gated_by_siren": bool(emergency.get("gated_by_siren", False)),
-            "cached": context_cached,
             "lane_counts": detection.get(
                 "emergency_lane_counts",
                 {lane: 0 for lane in LANE_KEYS},
@@ -180,7 +154,6 @@ def _build_response(
             "confidence": float(siren.get("confidence", 0.0)),
             "mode": siren.get("mode"),
             "sample_rate": siren.get("sample_rate"),
-            "cached": context_cached,
         },
         "dqn": {
             "mode": result.get("mode"),
