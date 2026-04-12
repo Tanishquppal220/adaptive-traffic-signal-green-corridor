@@ -201,6 +201,11 @@ def upload_demo():
     return render_template("upload_demo.html", lane_keys=LANE_KEYS)
 
 
+@bp.get("/compare")
+def compare():
+    return render_template("compare.html", lane_keys=LANE_KEYS)
+
+
 @bp.get("/api/status")
 def status():
     return jsonify(controller.status())

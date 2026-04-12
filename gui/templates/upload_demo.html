@@ -16,11 +16,19 @@
 <body>
     <main class="page-shell">
         <header class="hero">
-            <p class="eyebrow">Adaptive Traffic Signal Green Corridor</p>
-            <h1>Upload Demo: YOLO to DQN</h1>
-            <p class="subtitle">
-                Upload one image per lane, run controller pipeline, and watch live top-down simulation.
-            </p>
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+                <div>
+                    <p class="eyebrow">Adaptive Traffic Signal Green Corridor</p>
+                    <h1>Upload Demo: YOLO to DQN</h1>
+                    <p class="subtitle">
+                        Upload one image per lane, run controller pipeline, and watch live top-down simulation.
+                    </p>
+                </div>
+                <nav class="cmp-nav" style="margin-top:0.4rem;">
+                    <span class="nav-chip nav-chip-active">Demo</span>
+                    <a href="/compare" class="nav-chip">⚖ DQN vs Round-Robin →</a>
+                </nav>
+            </div>
         </header>
 
         <section class="panel status-panel">

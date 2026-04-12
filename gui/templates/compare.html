@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DQN vs Round-Robin — Comparison Dashboard</title>
+    <meta name="description" content="Side-by-side comparison of DQN adaptive traffic signal control against classic Round-Robin fixed rotation.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+
+<body class="compare-page">
+    <main class="cmp-shell">
+
+        <!-- ── Header ───────────────────────────────────────────── -->
+        <header class="cmp-hero">
+            <div class="cmp-hero-text">
+                <p class="eyebrow">Adaptive Traffic Signal — Algorithm Comparison</p>
+                <h1>DQN <span class="vs-badge">VS</span> Round-Robin</h1>
+                <p class="subtitle">Same intersection, same traffic load — watch which algorithm clears it faster.</p>
+            </div>
+            <nav class="cmp-nav">
+                <a href="/" class="nav-chip">← Back to Demo</a>
+                <span class="nav-chip nav-chip-active">Comparison</span>
+            </nav>
+        </header>
+
+        <!-- ── System Status ────────────────────────────────────── -->
+        <section class="panel status-panel cmp-status">
+            <div class="status-strip">
+                <article class="status-chip is-warn" id="backendStatusChip">
+                    <span>Backend</span>
+                    <strong id="backendStatusValue">Checking...</strong>
+                </article>
+                <article class="status-chip is-warn" id="controlModeChip">
+                    <span>DQN Mode</span>
+                    <strong id="controlModeValue">Unknown</strong>
+                </article>
+                <article class="status-chip is-warn" id="cmpStateChip">
+                    <span>Comparison State</span>
+                    <strong id="cmpStateValue">Idle</strong>
+                </article>
+            </div>
+        </section>
+
+        <!-- ── Upload Form ──────────────────────────────────────── -->
+        <section class="panel cmp-upload-panel">
+            <h2>Setup: Upload Lane Images + Siren Audio</h2>
+            <form id="cmpForm" class="cmp-upload-grid" enctype="multipart/form-data">
+                <label class="upload-card">
+                    <span>North Lane</span>
+                    <input type="file" name="laneN" accept="image/*" required>
+                    <small class="file-name" id="fn-laneN">No file selected</small>
+                </label>
+                <label class="upload-card">
+                    <span>South Lane</span>
+                    <input type="file" name="laneS" accept="image/*" required>
+                    <small class="file-name" id="fn-laneS">No file selected</small>
+                </label>
+                <label class="upload-card">
+                    <span>East Lane</span>
+                    <input type="file" name="laneE" accept="image/*" required>
+                    <small class="file-name" id="fn-laneE">No file selected</small>
+                </label>
+                <label class="upload-card">
+                    <span>West Lane</span>
+                    <input type="file" name="laneW" accept="image/*" required>
+                    <small class="file-name" id="fn-laneW">No file selected</small>
+                </label>
+                <label class="upload-card upload-card-wide">
+                    <span>Siren Audio (WAV)</span>
+                    <input type="file" name="sirenAudio" accept="audio/wav,audio/wave,.wav" required>
+                    <small class="file-name" id="fn-sirenAudio">No file selected</small>
+                </label>
+                <p class="upload-hint upload-card-wide">
+                    Required: 4 lane images + 1 WAV file. If backend is offline, both sims auto-fall back to simulated mode.
+                </p>
+                <div class="actions upload-card-wide">
+                    <button id="cmpStartBtn" type="submit">▶ Start Comparison</button>
+                    <button id="cmpResetBtn" type="button" class="ghost">↺ Reset</button>
+                </div>
+            </form>
+            <p id="cmpMessage" class="message" aria-live="polite"></p>
+        </section>
+
+        <!-- ── Scoreboard ────────────────────────────────────────── -->
+        <section class="panel scoreboard-panel" id="scoreboardPanel">
+            <h2>Live Scoreboard</h2>
+            <div class="scoreboard-grid">
+                <!-- DQN column -->
+                <div class="score-col score-col-dqn">
+                    <div class="algo-label">
+                        <span class="algo-dot dot-dqn"></span>DQN (Adaptive)
+                        <span class="winner-badge hidden" id="dqnWinnerBadge">🏆 Winner!</span>
+                    </div>
+                    <div class="score-metrics">
+                        <div class="score-metric">
+                            <span>Elapsed</span>
+                            <strong id="dqn-elapsed">0s</strong>
+                        </div>
+                        <div class="score-metric">
+                            <span>Cars Cleared</span>
+                            <strong id="dqn-cleared">0</strong>
+                        </div>
+                        <div class="score-metric">
+                            <span>Cycles</span>
+                            <strong id="dqn-cycles">0</strong>
+                        </div>
+                        <div class="score-metric">
+                            <span>Queue Left</span>
+                            <strong id="dqn-queue">-</strong>
+                        </div>
+                        <div class="score-metric">
+                            <span>Throughput</span>
+                            <strong id="dqn-throughput">-</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VS divider -->
+                <div class="vs-divider">
+                    <div class="vs-circle">VS</div>
+                </div>
+
+                <!-- Round-Robin column -->
+                <div class="score-col score-col-rr">
+                    <div class="algo-label">
+                        <span class="algo-dot dot-rr"></span>Round-Robin (Fixed 15s)
+                        <span class="winner-badge hidden" id="rrWinnerBadge">🏆 Winner!</span>
+                    </div>
+                    <div class="score-metrics">
+                        <div class="score-metric">
+                            <span>Elapsed</span>
+                            <strong id="rr-elapsed">0s</strong>
+                        </div>
+                        <div class="score-metric">
+                            <span>Cars Cleared</span>
+                            <strong id="rr-cleared">0</strong>
+                        </div>
+                        <div class="score-metric">
+                            <span>Cycles</span>
+                            <strong id="rr-cycles">0</strong>
+                        </div>
+                        <div class="score-metric">
+                            <span>Queue Left</span>
+                            <strong id="rr-queue">-</strong>
+                        </div>
+                        <div class="score-metric">
+                            <span>Throughput</span>
+                            <strong id="rr-throughput">-</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Efficiency bar -->
+            <div class="efficiency-bar-wrap" id="efficiencyWrap">
+                <span class="eff-label-left" id="effLabelDqn">DQN</span>
+                <div class="efficiency-bar-track">
+                    <div class="efficiency-bar-fill fill-dqn" id="effBarDqn" style="width:50%"></div>
+                    <div class="efficiency-bar-fill fill-rr" id="effBarRr" style="width:50%"></div>
+                </div>
+                <span class="eff-label-right" id="effLabelRr">RR</span>
+            </div>
+        </section>
+
+        <!-- ── Dual Sim Panels ───────────────────────────────────── -->
+        <div class="dual-sim-grid">
+
+            <!-- DQN Simulation -->
+            <section class="panel cmp-sim-panel">
+                <div class="sim-header">
+                    <h2><span class="algo-dot dot-dqn"></span>DQN — Adaptive Control</h2>
+                    <div class="sim-status-pill" id="dqnStatus">Waiting...</div>
+                </div>
+                <div class="cmp-sim-layout">
+                    <div class="canvas-wrap">
+                        <canvas id="dqnCanvas" width="980" height="560"
+                            aria-label="DQN traffic intersection simulation"></canvas>
+                    </div>
+                    <aside class="telemetry">
+                        <h3>Signal Phase</h3>
+                        <div class="phase-box">
+                            <p>Lane: <strong id="dqn-phaseLane">-</strong></p>
+                            <p>Signal: <strong id="dqn-phaseSignal">RED</strong></p>
+                            <p>Remaining: <strong id="dqn-phaseRemaining">-</strong></p>
+                        </div>
+                        <h3>Live Queue</h3>
+                        <div class="queue-grid">
+                            <div class="queue-item"><span>North</span><strong id="dqn-count-laneN">0</strong></div>
+                            <div class="queue-item"><span>South</span><strong id="dqn-count-laneS">0</strong></div>
+                            <div class="queue-item"><span>East</span><strong id="dqn-count-laneE">0</strong></div>
+                            <div class="queue-item"><span>West</span><strong id="dqn-count-laneW">0</strong></div>
+                        </div>
+                        <h3>DQN Decision</h3>
+                        <div class="phase-box">
+                            <p>Direction: <strong id="dqn-direction">-</strong></p>
+                            <p>Duration: <strong id="dqn-duration">-</strong></p>
+                            <p>Mode: <strong id="dqn-mode">-</strong></p>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+            <!-- Round-Robin Simulation -->
+            <section class="panel cmp-sim-panel">
+                <div class="sim-header">
+                    <h2><span class="algo-dot dot-rr"></span>Round-Robin — Fixed Rotation</h2>
+                    <div class="sim-status-pill rr-pill" id="rrStatus">Waiting...</div>
+                </div>
+                <div class="cmp-sim-layout">
+                    <div class="canvas-wrap">
+                        <canvas id="rrCanvas" width="980" height="560"
+                            aria-label="Round-Robin traffic intersection simulation"></canvas>
+                    </div>
+                    <aside class="telemetry">
+                        <h3>Signal Phase</h3>
+                        <div class="phase-box">
+                            <p>Lane: <strong id="rr-phaseLane">-</strong></p>
+                            <p>Signal: <strong id="rr-phaseSignal">RED</strong></p>
+                            <p>Remaining: <strong id="rr-phaseRemaining">-</strong></p>
+                        </div>
+                        <h3>Live Queue</h3>
+                        <div class="queue-grid">
+                            <div class="queue-item"><span>North</span><strong id="rr-count-laneN">0</strong></div>
+                            <div class="queue-item"><span>South</span><strong id="rr-count-laneS">0</strong></div>
+                            <div class="queue-item"><span>East</span><strong id="rr-count-laneE">0</strong></div>
+                            <div class="queue-item"><span>West</span><strong id="rr-count-laneW">0</strong></div>
+                        </div>
+                        <h3>RR Schedule</h3>
+                        <div class="phase-box">
+                            <p>Lane: <strong id="rr-direction">-</strong></p>
+                            <p>Fixed Duration: <strong id="rr-duration">15s</strong></p>
+                            <p>Mode: <strong id="rr-mode">Round-Robin</strong></p>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+
+        </div>
+
+        <!-- ── Live Chart ────────────────────────────────────────── -->
+        <section class="panel chart-panel">
+            <h2>Queue Depth Over Time — DQN vs Round-Robin</h2>
+            <div class="chart-wrap">
+                <canvas id="queueChart" aria-label="Queue depth comparison chart"></canvas>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="{{ url_for('static', filename='js/compare.js') }}"></script>
+</body>
+
+</html>
