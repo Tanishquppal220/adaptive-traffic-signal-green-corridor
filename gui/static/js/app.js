@@ -6,43 +6,47 @@ const laneLabels = {
   laneW: "West",
 };
 
-const form = document.getElementById("laneUploadForm");
-const runBtn = document.getElementById("runBtn");
-const resetBtn = document.getElementById("resetBtn");
-const formMessage = document.getElementById("formMessage");
-const simStatus = document.getElementById("simStatus");
-const emergencyBanner = document.getElementById("emergencyBanner");
+const byId = (id) => document.getElementById(id);
 
-const modeValue = document.getElementById("modeValue");
-const directionValue = document.getElementById("directionValue");
-const durationValue = document.getElementById("durationValue");
-const actionValue = document.getElementById("actionValue");
+const form = byId("laneUploadForm");
+const runBtn = byId("runBtn");
+const resetBtn = byId("resetBtn");
+const formMessage = byId("formMessage");
+const simStatus = byId("simStatus");
+const emergencyBanner = byId("emergencyBanner");
 
-const phaseLaneNode = document.getElementById("phaseLane");
-const phaseSignalNode = document.getElementById("phaseSignal");
-const phaseRemainingNode = document.getElementById("phaseRemaining");
+const backendStatusChip = byId("backendStatusChip");
+const backendStatusValue = byId("backendStatusValue");
+const controlModeChip = byId("controlModeChip");
+const controlModeValue = byId("controlModeValue");
+const runModeChip = byId("runModeChip");
+const runModeValue = byId("runModeValue");
 
-const detectorTotalNode = document.getElementById("detectorTotal");
-const detectorCountsNode = document.getElementById("detectorCounts");
+const phaseLaneNode = byId("phaseLane");
+const phaseSignalNode = byId("phaseSignal");
+const phaseRemainingNode = byId("phaseRemaining");
 
-const densityHorizonNode = document.getElementById("densityHorizon");
-const densityValuesNode = document.getElementById("densityValues");
+const detectorTotalNode = byId("detectorTotal");
+const detectorCountsNode = byId("detectorCounts");
 
-const emergencyDetectedNode = document.getElementById("emergencyDetected");
-const emergencyLabelNode = document.getElementById("emergencyLabel");
-const emergencyConfidenceNode = document.getElementById("emergencyConfidence");
-const emergencyDirectionNode = document.getElementById("emergencyDirection");
+const densityHorizonNode = byId("densityHorizon");
+const densityValuesNode = byId("densityValues");
 
-const sirenDetectedNode = document.getElementById("sirenDetected");
-const sirenConfidenceNode = document.getElementById("sirenConfidence");
-const sirenSampleRateNode = document.getElementById("sirenSampleRate");
+const emergencyDetectedNode = byId("emergencyDetected");
+const emergencyLabelNode = byId("emergencyLabel");
+const emergencyConfidenceNode = byId("emergencyConfidence");
+const emergencyDirectionNode = byId("emergencyDirection");
 
-const dqnActionNode = document.getElementById("dqnAction");
-const dqnDirectionNode = document.getElementById("dqnDirection");
-const dqnDurationNode = document.getElementById("dqnDuration");
+const sirenDetectedNode = byId("sirenDetected");
+const sirenConfidenceNode = byId("sirenConfidence");
+const sirenSampleRateNode = byId("sirenSampleRate");
 
-const canvas = document.getElementById("intersectionCanvas");
-const ctx = canvas.getContext("2d");
+const dqnActionNode = byId("dqnAction");
+const dqnDirectionNode = byId("dqnDirection");
+const dqnDurationNode = byId("dqnDuration");
+
+const canvas = byId("intersectionCanvas");
+const ctx = canvas ? canvas.getContext("2d") : null;
 
 let animationId = 0;
 let runToken = 0;
@@ -52,7 +56,6 @@ const world = {
   counts: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
   initialCounts: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
   movingCars: [],
-  sequence: [],
   sequenceCursor: 0,
   activeLane: null,
   signal: "red",
@@ -78,7 +81,67 @@ const world = {
   emergencyCarSpawned: false,
   finished: false,
   seededRand: Math.random,
+  runMode: "idle",
+  mockTieCursor: 0,
 };
+
+function setText(node, value, fallback = "-") {
+  if (!node) return;
+  if (value === null || value === undefined || value === "") {
+    node.textContent = fallback;
+  } else {
+    node.textContent = String(value);
+  }
+}
+
+function swapStatusClass(node, stateClass) {
+  if (!node) return;
+  node.classList.remove("is-ok", "is-warn", "is-error", "is-mock");
+  node.classList.add(stateClass);
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function asFinite(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmtFixed(value, digits = 2, fallback = "-") {
+  const n = asFinite(value);
+  return n === null ? fallback : n.toFixed(digits);
+}
+
+function normalizeCounts(inputCounts = {}) {
+  const out = {};
+  laneKeys.forEach((lane) => {
+    const value = Number(inputCounts[lane]);
+    out[lane] = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+  });
+  return out;
+}
+
+function laneFromDirection(direction) {
+  const text = String(direction || "").trim().toUpperCase();
+  if (text === "N") return "laneN";
+  if (text === "S") return "laneS";
+  if (text === "E") return "laneE";
+  if (text === "W") return "laneW";
+  return "laneN";
+}
+
+function directionFromLane(lane) {
+  return String(lane || "laneN").replace("lane", "");
+}
+
+function encodeMockAction(direction, duration) {
+  const map = { N: 0, S: 1, E: 2, W: 3 };
+  const dir = String(direction || "N").toUpperCase();
+  const d = clamp(Math.round(Number(duration) || 5), 5, 60);
+  return (map[dir] ?? 0) * 56 + (d - 5);
+}
 
 function mulberry32(seed) {
   let t = seed >>> 0;
@@ -90,42 +153,64 @@ function mulberry32(seed) {
   };
 }
 
+function randomInt(min, max) {
+  return Math.floor(world.seededRand() * (max - min + 1)) + min;
+}
+
 function setMessage(text, isError = false) {
+  if (!formMessage) return;
   formMessage.textContent = text || "";
-  formMessage.style.color = isError ? "#8f1b1b" : "#2b4a2f";
+  formMessage.style.color = isError ? "#ef8f8f" : "#8cd1ff";
+}
+
+function setBackendStatus(text, stateClass) {
+  setText(backendStatusValue, text, "Unknown");
+  swapStatusClass(backendStatusChip, stateClass);
+}
+
+function setControlMode(text, stateClass = "is-warn") {
+  setText(controlModeValue, text, "Unknown");
+  swapStatusClass(controlModeChip, stateClass);
+}
+
+function setRunMode(mode) {
+  world.runMode = mode;
+  if (mode === "live") {
+    setText(runModeValue, "Live Backend");
+    swapStatusClass(runModeChip, "is-ok");
+    return;
+  }
+  if (mode === "mock") {
+    setText(runModeValue, "Simulated Fallback");
+    swapStatusClass(runModeChip, "is-mock");
+    return;
+  }
+  setText(runModeValue, "Idle");
+  swapStatusClass(runModeChip, "is-warn");
 }
 
 function renderCounts() {
   laneKeys.forEach((lane) => {
-    const node = document.getElementById(`count-${lane}`);
-    if (node) {
-      node.textContent = String(Math.max(0, world.counts[lane] || 0));
-    }
+    setText(byId(`count-${lane}`), Math.max(0, world.counts[lane] || 0), "0");
   });
 }
 
 function updatePhaseText() {
-  phaseLaneNode.textContent = world.activeLane ? laneLabels[world.activeLane] : "-";
-  phaseSignalNode.textContent = world.signal.toUpperCase();
+  setText(phaseLaneNode, world.activeLane ? laneLabels[world.activeLane] : "-", "-");
+  setText(phaseSignalNode, String(world.signal || "RED").toUpperCase(), "RED");
   if (world.phaseType === "fixed-green" || world.phaseType === "yellow") {
     const s = Math.max(0, Math.ceil(world.phaseTimeMs / 1000));
-    phaseRemainingNode.textContent = `${s}s`;
-  } else {
-    phaseRemainingNode.textContent = "-";
+    setText(phaseRemainingNode, `${s}s`);
+    return;
   }
+  setText(phaseRemainingNode, "-");
 }
 
 function renderTimingTable() {
   laneKeys.forEach((lane) => {
-    const timingNode = document.getElementById(`timing-${lane}`);
-    const cyclesNode = document.getElementById(`cycles-${lane}`);
     const duration = world.laneTimings[lane];
-    if (timingNode) {
-      timingNode.textContent = Number.isFinite(duration) ? String(duration) : "-";
-    }
-    if (cyclesNode) {
-      cyclesNode.textContent = String(world.phaseCycles[lane] || 0);
-    }
+    setText(byId(`timing-${lane}`), Number.isFinite(duration) ? duration : "-", "-");
+    setText(byId(`cycles-${lane}`), world.phaseCycles[lane] || 0, "0");
 
     const row = document.querySelector(`#timingTableBody tr[data-lane='${lane}']`);
     if (row) {
@@ -141,103 +226,113 @@ function renderModelOutputs(modelOutputs = {}) {
   const siren = modelOutputs.siren || {};
   const dqn = modelOutputs.dqn || {};
 
-  const dCounts = detector.lane_counts || {};
-  detectorTotalNode.textContent = detector.total ?? "-";
-  detectorCountsNode.textContent =
-    `N:${dCounts.laneN ?? 0} S:${dCounts.laneS ?? 0} E:${dCounts.laneE ?? 0} W:${dCounts.laneW ?? 0}`;
+  const simulated = world.runMode === "mock" || String(dqn.mode || "").includes("mock");
 
-  const p = density.predictions || {};
-  densityHorizonNode.textContent = density.horizon_sec ? `${density.horizon_sec}s` : "-";
-  densityValuesNode.textContent =
-    `N:${Math.round(p.N || 0)} S:${Math.round(p.S || 0)} ` +
-    `E:${Math.round(p.E || 0)} W:${Math.round(p.W || 0)}`;
+  const detectorCounts = detector.lane_counts || {};
+  const nCount = detectorCounts.laneN ?? 0;
+  const sCount = detectorCounts.laneS ?? 0;
+  const eCount = detectorCounts.laneE ?? 0;
+  const wCount = detectorCounts.laneW ?? 0;
+  setText(detectorTotalNode, detector.total ?? "-", "-");
+  setText(detectorCountsNode, `N:${nCount} S:${sCount} E:${eCount} W:${wCount}`, "-");
 
-  emergencyDetectedNode.textContent = emergency.detected ? "YES" : "NO";
-  emergencyLabelNode.textContent = emergency.label || "-";
-  emergencyConfidenceNode.textContent = Number(emergency.confidence || 0).toFixed(2);
-  if (emergency.lane_counts) {
-    const c = emergency.lane_counts;
-    emergencyDirectionNode.textContent =
-      `${emergency.direction || emergency.status || "-"} ` +
-      `(N:${c.laneN ?? 0} S:${c.laneS ?? 0} E:${c.laneE ?? 0} W:${c.laneW ?? 0})`;
+  const pred = density.predictions || {};
+  setText(densityHorizonNode, density.horizon_sec ? `${density.horizon_sec}s` : "-", "-");
+  setText(
+    densityValuesNode,
+    `N:${Math.round(asFinite(pred.N) ?? 0)} S:${Math.round(asFinite(pred.S) ?? 0)} ` +
+      `E:${Math.round(asFinite(pred.E) ?? 0)} W:${Math.round(asFinite(pred.W) ?? 0)}`,
+    "-"
+  );
+
+  if (simulated) {
+    setText(emergencyDetectedNode, "NO (simulated)");
+    setText(emergencyLabelNode, "Simulated");
+    setText(emergencyConfidenceNode, "N/A");
+    setText(emergencyDirectionNode, "N/A");
+    setText(sirenDetectedNode, "NO (simulated)");
+    setText(sirenConfidenceNode, "N/A");
+    setText(sirenSampleRateNode, "N/A");
   } else {
-    emergencyDirectionNode.textContent = emergency.direction || emergency.status || "-";
+    setText(emergencyDetectedNode, emergency.detected ? "YES" : "NO");
+    setText(emergencyLabelNode, emergency.label || "-");
+    setText(emergencyConfidenceNode, fmtFixed(emergency.confidence));
+    if (emergency.lane_counts) {
+      const c = emergency.lane_counts;
+      setText(
+        emergencyDirectionNode,
+        `${emergency.direction || emergency.status || "-"} ` +
+          `(N:${c.laneN ?? 0} S:${c.laneS ?? 0} E:${c.laneE ?? 0} W:${c.laneW ?? 0})`,
+        "-"
+      );
+    } else {
+      setText(emergencyDirectionNode, emergency.direction || emergency.status || "-", "-");
+    }
+
+    setText(sirenDetectedNode, siren.detected ? "YES" : "NO");
+    setText(sirenConfidenceNode, fmtFixed(siren.confidence));
+    setText(
+      sirenSampleRateNode,
+      asFinite(siren.sample_rate) !== null ? `${Math.round(asFinite(siren.sample_rate))}Hz` : "-",
+      "-"
+    );
   }
 
-  sirenDetectedNode.textContent = siren.detected ? "YES" : "NO";
-  sirenConfidenceNode.textContent = Number(siren.confidence || 0).toFixed(2);
-  sirenSampleRateNode.textContent = siren.sample_rate ? `${siren.sample_rate}Hz` : "-";
-
-  dqnActionNode.textContent = dqn.action ?? "-";
-  dqnDirectionNode.textContent = dqn.direction || "-";
-  dqnDurationNode.textContent = dqn.duration ? `${dqn.duration}s` : "-";
+  setText(dqnActionNode, dqn.action ?? "-", "-");
+  setText(dqnDirectionNode, dqn.direction || "-", "-");
+  setText(dqnDurationNode, asFinite(dqn.duration) !== null ? `${Math.round(dqn.duration)}s` : "-", "-");
   renderComparisonMetrics();
 }
 
 function renderComparisonMetrics() {
-  const baselineNode = document.getElementById("baselineEstimate");
-  const runtimeNode = document.getElementById("dqnRuntime");
-  const speedupNode = document.getElementById("speedupLabel");
+  const baselineNode = byId("baselineEstimate");
+  const runtimeNode = byId("dqnRuntime");
+  const speedupNode = byId("speedupLabel");
 
-  if (baselineNode) {
-    baselineNode.textContent = world.baselineEstimateMs > 0
-      ? `${Math.round(world.baselineEstimateMs / 1000)}s`
-      : "-";
+  if (world.baselineEstimateMs > 0) {
+    setText(baselineNode, `${Math.round(world.baselineEstimateMs / 1000)}s`);
+  } else {
+    setText(baselineNode, "-");
   }
-  if (runtimeNode) {
-    runtimeNode.textContent = world.elapsedMs > 0
-      ? `${Math.round(world.elapsedMs / 1000)}s`
-      : "-";
+
+  if (world.elapsedMs > 0) {
+    setText(runtimeNode, `${Math.round(world.elapsedMs / 1000)}s`);
+  } else {
+    setText(runtimeNode, "-");
   }
-  if (speedupNode) {
-    if (world.baselineEstimateMs > 0 && world.elapsedMs > 0) {
-      const ratio = world.baselineEstimateMs / world.elapsedMs;
-      if (ratio === 1) {
-        speedupNode.textContent = "same as baseline";
-      } else if (ratio > 1) {
-        speedupNode.textContent = `${ratio.toFixed(2)}x faster`;
-      } else {
-        speedupNode.textContent = `${(1 / ratio).toFixed(2)}x slower`;
-      }
+
+  if (world.baselineEstimateMs > 0 && world.elapsedMs > 0) {
+    const ratio = world.baselineEstimateMs / world.elapsedMs;
+    if (Math.abs(ratio - 1) < 0.01) {
+      setText(speedupNode, "same as baseline");
+    } else if (ratio > 1) {
+      setText(speedupNode, `${ratio.toFixed(2)}x faster`);
     } else {
-      speedupNode.textContent = "-";
+      setText(speedupNode, `${(1 / ratio).toFixed(2)}x slower`);
     }
+  } else {
+    setText(speedupNode, "-");
   }
 }
 
-function estimateBaselineTimeMs(
-  counts,
-  greenDurationSec,
-  yellowMs,
-  clearRateMin,
-  clearRateMax
-) {
+function estimateBaselineTimeMs(counts, greenDurationSec, yellowMs, clearRateMin, clearRateMax) {
   const laneOrder = ["laneN", "laneS", "laneE", "laneW"];
   const avgClearRate = (clearRateMin + clearRateMax) / 2;
   const greenMs = greenDurationSec * 1000;
   const cycleMs = greenMs + yellowMs;
-  const queue = {
-    laneN: counts.laneN || 0,
-    laneS: counts.laneS || 0,
-    laneE: counts.laneE || 0,
-    laneW: counts.laneW || 0,
-  };
+  const queue = normalizeCounts(counts);
   let total = 0;
 
   while (laneOrder.some((lane) => queue[lane] > 0)) {
     for (const lane of laneOrder) {
-      if (!laneOrder.some((l) => queue[l] > 0)) {
-        break;
-      }
+      if (!laneOrder.some((l) => queue[l] > 0)) break;
       const cars = queue[lane];
       if (cars > 0) {
         const removed = Math.min(cars, Math.round(avgClearRate * greenDurationSec));
         queue[lane] = Math.max(0, cars - removed);
       }
       total += cycleMs;
-      if (!laneOrder.some((l) => queue[l] > 0)) {
-        break;
-      }
+      if (!laneOrder.some((l) => queue[l] > 0)) break;
     }
   }
 
@@ -245,6 +340,14 @@ function estimateBaselineTimeMs(
 }
 
 function applyEmergencyVisualState(sim) {
+  if (!emergencyBanner) return;
+
+  if (world.runMode === "mock") {
+    emergencyBanner.classList.remove("hidden");
+    emergencyBanner.textContent = "Simulated mode: emergency and siren outputs are fallback values.";
+    return;
+  }
+
   const emergencyActive = sim.emergency_status === "active" || sim.emergency_detected;
   world.emergencyActive = emergencyActive;
   world.emergencyLane = emergencyActive ? sim.selected_lane : null;
@@ -269,29 +372,10 @@ function applyEmergencyVisualState(sim) {
 function totalCars() {
   return laneKeys.reduce((acc, lane) => acc + (world.counts[lane] || 0), 0);
 }
-
-function randomInt(min, max) {
-  return Math.floor(world.seededRand() * (max - min + 1)) + min;
-}
-
-function nextLaneWithCars() {
-  if (!world.sequence.length) {
+function laneGeometry() {
+  if (!canvas) {
     return null;
   }
-
-  for (let i = 0; i < world.sequence.length; i += 1) {
-    const idx = (world.sequenceCursor + i) % world.sequence.length;
-    const lane = world.sequence[idx];
-    if ((world.counts[lane] || 0) > 0) {
-      world.sequenceCursor = (idx + 1) % world.sequence.length;
-      return lane;
-    }
-  }
-
-  return null;
-}
-
-function laneGeometry() {
   const w = canvas.width;
   const h = canvas.height;
   const cx = w / 2;
@@ -338,14 +422,25 @@ function spawnMovingCar(lane, emergencyCar = false) {
   });
 }
 
+function drawRoundedRect(x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
+}
+
 function drawCar(x, y, angle, color, emergencyCar = false) {
+  if (!ctx) return;
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
 
   ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.roundRect(-12, -7, 24, 14, 4);
+  drawRoundedRect(-12, -7, 24, 14, 4);
   ctx.fill();
 
   ctx.fillStyle = "rgba(255,255,255,0.62)";
@@ -359,6 +454,7 @@ function drawCar(x, y, angle, color, emergencyCar = false) {
 }
 
 function drawSignals(g) {
+  if (!ctx) return;
   const signals = {
     laneN: { x: g.xN + 30, y: g.stopN + 16 },
     laneS: { x: g.xS - 30, y: g.stopS - 16 },
@@ -393,7 +489,9 @@ function drawSignals(g) {
 }
 
 function drawScene() {
+  if (!ctx || !canvas) return;
   const g = laneGeometry();
+  if (!g) return;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#2d343a";
@@ -471,8 +569,10 @@ function enterGreen(lane) {
   world.lastServedLane = lane;
   world.awaitingNext = false;
 
-  simStatus.textContent =
-    `Green phase for ${laneLabels[lane]} (${Math.round(world.assignedDurationMs / 1000)}s)`;
+  setText(
+    simStatus,
+    `Green phase for ${laneLabels[lane]} (${Math.round(world.assignedDurationMs / 1000)}s)`
+  );
   updatePhaseText();
   renderTimingTable();
 }
@@ -481,7 +581,7 @@ function enterYellow() {
   world.signal = "yellow";
   world.phaseType = "yellow";
   world.phaseTimeMs = world.yellowMs;
-  simStatus.textContent = `Switching from ${laneLabels[world.activeLane]}...`;
+  setText(simStatus, `Switching from ${laneLabels[world.activeLane]}...`);
   updatePhaseText();
 }
 
@@ -491,7 +591,7 @@ function completeSimulation() {
   world.phaseType = "done";
   world.finished = true;
   world.autoNextPending = false;
-  simStatus.textContent = "Simulation finished: all lanes cleared.";
+  setText(simStatus, "Simulation finished: all lanes cleared.");
   setMessage("Simulation complete.");
   updatePhaseText();
   renderTimingTable();
@@ -509,7 +609,7 @@ function pauseForNextStep() {
     return;
   }
 
-  simStatus.textContent = "Step complete. Automatically running next decision...";
+  setText(simStatus, "Step complete. Automatically running next decision...");
   world.autoNextPending = true;
   updatePhaseText();
 }
@@ -529,19 +629,12 @@ function tickPhase(dtMs) {
       world.clearAccumulatorMs -= 1000;
       const lane = world.activeLane;
       if ((world.counts[lane] || 0) > 0) {
-        const remove = Math.min(
-          world.counts[lane],
-          randomInt(world.clearRateMin, world.clearRateMax)
-        );
+        const remove = Math.min(world.counts[lane], randomInt(world.clearRateMin, world.clearRateMax));
         world.counts[lane] -= remove;
         for (let i = 0; i < remove; i += 1) {
           const isEmergency =
-            world.emergencyActive &&
-            lane === world.emergencyLane &&
-            !world.emergencyCarSpawned;
-          if (isEmergency) {
-            world.emergencyCarSpawned = true;
-          }
+            world.emergencyActive && lane === world.emergencyLane && !world.emergencyCarSpawned;
+          if (isEmergency) world.emergencyCarSpawned = true;
           spawnMovingCar(lane, isEmergency);
         }
       }
@@ -550,9 +643,7 @@ function tickPhase(dtMs) {
 
   if (world.phaseType === "fixed-green") {
     world.phaseTimeMs -= dtMs;
-    if (world.phaseTimeMs <= 0) {
-      enterYellow();
-    }
+    if (world.phaseTimeMs <= 0) enterYellow();
   } else if (world.phaseType === "yellow") {
     world.phaseTimeMs -= dtMs;
     if (world.phaseTimeMs <= 0) {
@@ -583,7 +674,7 @@ function tickMovingCars(dtMs) {
   if (world.emergencyActive && hadEmergencyCar && !hasEmergencyCar) {
     world.emergencyActive = false;
     world.emergencyLane = null;
-    if (emergencyBanner.textContent) {
+    if (emergencyBanner && emergencyBanner.textContent) {
       emergencyBanner.classList.add("hidden");
       emergencyBanner.textContent = "";
     }
@@ -591,17 +682,13 @@ function tickMovingCars(dtMs) {
 }
 
 function animationLoop(ts) {
-  if (runToken === 0) {
-    return;
-  }
-  if (!lastTs) {
-    lastTs = ts;
-  }
+  if (runToken === 0) return;
+
+  if (!lastTs) lastTs = ts;
   const dtMs = Math.min(50, ts - lastTs);
   lastTs = ts;
-  if (!world.finished && runToken !== 0) {
-    world.elapsedMs += dtMs;
-  }
+
+  if (!world.finished && runToken !== 0) world.elapsedMs += dtMs;
 
   tickPhase(dtMs);
   tickMovingCars(dtMs);
@@ -616,30 +703,206 @@ function animationLoop(ts) {
     animationId = window.requestAnimationFrame(animationLoop);
   }
 }
+function pickMockLane(counts) {
+  const queue = normalizeCounts(counts);
+  const maxCount = Math.max(...laneKeys.map((lane) => queue[lane] || 0));
+  const candidates = laneKeys.filter((lane) => (queue[lane] || 0) === maxCount);
+  if (!candidates.length) return "laneN";
+
+  for (let i = 0; i < laneKeys.length; i += 1) {
+    const idx = (world.mockTieCursor + i) % laneKeys.length;
+    const lane = laneKeys[idx];
+    if (candidates.includes(lane)) {
+      world.mockTieCursor = (idx + 1) % laneKeys.length;
+      return lane;
+    }
+  }
+  return candidates[0];
+}
+
+function computeMockDuration(queueForLane, maxQueue) {
+  if (maxQueue <= 0 || queueForLane <= 0) return 5;
+  const ratio = queueForLane / maxQueue;
+  return clamp(Math.round(8 + ratio * 22), 5, 45);
+}
+
+function hashUploadFiles(formData) {
+  let seed = 0x9e3779b9;
+  laneKeys.concat(["sirenAudio"]).forEach((name, idx) => {
+    const file = formData.get(name);
+    const str = file && typeof file.name === "string" ? file.name : `${name}-none`;
+    const size = file && Number.isFinite(file.size) ? file.size : 0;
+    for (let i = 0; i < str.length; i += 1) {
+      seed ^= str.charCodeAt(i) + idx + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+    seed ^= size + idx * 17;
+  });
+  return seed >>> 0;
+}
+
+function buildMockLaneCountsFromUpload(formData) {
+  const seed = hashUploadFiles(formData);
+  const rand = mulberry32(seed || Date.now());
+  const counts = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
+
+  laneKeys.forEach((lane) => {
+    const file = formData.get(lane);
+    const hasFile = file && typeof file.name === "string" && file.name.length > 0;
+    if (!hasFile) {
+      counts[lane] = 0;
+      return;
+    }
+    counts[lane] = 4 + Math.floor(rand() * 20);
+  });
+
+  return counts;
+}
+
+function buildMockCyclePayload({ laneCounts, currentActiveLane = null, reason = "backend_unavailable" }) {
+  const counts = normalizeCounts(laneCounts);
+  const selectedLane = pickMockLane(counts);
+  const selectedDirection = directionFromLane(selectedLane);
+  const maxQueue = Math.max(...laneKeys.map((lane) => counts[lane] || 0));
+  const selectedDuration = computeMockDuration(counts[selectedLane] || 0, maxQueue);
+
+  const laneTimings = laneKeys.reduce((acc, lane) => {
+    acc[lane] = lane === selectedLane ? selectedDuration : 0;
+    return acc;
+  }, {});
+
+  const densityPred = {
+    N: Math.round((counts.laneN || 0) * 1.08),
+    S: Math.round((counts.laneS || 0) * 1.08),
+    E: Math.round((counts.laneE || 0) * 1.08),
+    W: Math.round((counts.laneW || 0) * 1.08),
+  };
+
+  const total = laneKeys.reduce((acc, lane) => acc + counts[lane], 0);
+  const seed = Date.now() & 0xffffffff;
+  const action = encodeMockAction(selectedDirection, selectedDuration);
+
+  return {
+    result: {
+      lane_counts: { ...counts },
+      direction: selectedDirection,
+      duration: selectedDuration,
+      mode: "mock-fallback",
+      action,
+      emergency: {
+        detected: false,
+        status: "simulated",
+        label: null,
+        confidence: 0,
+        direction: null,
+      },
+      siren: {
+        detected: false,
+        confidence: 0,
+        mode: "simulated",
+        sample_rate: null,
+      },
+      detection: {
+        mode: "simulated",
+        total,
+        lane_counts: { ...counts },
+      },
+      density: {
+        mode: "simulated",
+        horizon_sec: 60,
+        predictions: { ...densityPred },
+      },
+    },
+    simulation: {
+      initial_counts: { ...counts },
+      selected_lane: selectedLane,
+      selected_direction: selectedDirection,
+      selected_duration: selectedDuration,
+      sequence: [selectedLane],
+      lane_timings: laneTimings,
+      decision_scope: "single_lane",
+      active_lane_only_duration_applied: true,
+      mode: "mock-fallback",
+      emergency_detected: false,
+      emergency_status: "simulated",
+      emergency_release_reason: reason,
+      emergency_message: "Simulated fallback mode active.",
+      clear_rate_min: 1,
+      clear_rate_max: 2,
+      yellow_ms: 900,
+      seed,
+      tick_interval_sec: 3,
+      preemption_buffer_sec: 0,
+    },
+    lane_counts: { ...counts },
+    decision: {
+      direction: selectedDirection,
+      duration: selectedDuration,
+      mode: "mock-fallback",
+      action,
+    },
+    emergency: {
+      detected: false,
+      status: "simulated",
+    },
+    model_outputs: {
+      detector: {
+        mode: "simulated",
+        total,
+        lane_counts: { ...counts },
+      },
+      density: {
+        mode: "simulated",
+        horizon_sec: 60,
+        predictions: { ...densityPred },
+      },
+      emergency: {
+        detected: false,
+        status: "simulated",
+        label: null,
+        confidence: null,
+        direction: null,
+        lane_counts: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
+        message: "Simulated fallback mode.",
+      },
+      siren: {
+        detected: false,
+        confidence: null,
+        mode: "simulated",
+        sample_rate: null,
+      },
+      dqn: {
+        mode: "mock-fallback",
+        action,
+        direction: selectedDirection,
+        duration: selectedDuration,
+      },
+    },
+  };
+}
 
 function applyDecision(payload, initializeCounts = false) {
-  const sim = payload.simulation;
-  const decision = payload.decision;
+  const sim = payload?.simulation || {};
+  const decision = payload?.decision || {};
 
   if (initializeCounts) {
-    world.counts = { ...sim.initial_counts };
-    world.initialCounts = { ...sim.initial_counts };
+    world.counts = normalizeCounts(sim.initial_counts || {});
+    world.initialCounts = { ...world.counts };
     world.movingCars = [];
     world.phaseCycles = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
     world.finished = false;
   }
 
-  world.clearRateMin = sim.clear_rate_min || 1;
-  world.clearRateMax = sim.clear_rate_max || 2;
-  world.yellowMs = sim.yellow_ms || 900;
+  world.clearRateMin = clamp(Math.round(Number(sim.clear_rate_min) || 1), 1, 5);
+  world.clearRateMax = clamp(Math.round(Number(sim.clear_rate_max) || 2), world.clearRateMin, 8);
+  world.yellowMs = clamp(Math.round(Number(sim.yellow_ms) || 900), 300, 5000);
   world.laneTimings = { ...(sim.lane_timings || {}) };
   world.seededRand = mulberry32(sim.seed || Date.now());
-  world.preemptionBufferMs = (sim.preemption_buffer_sec || 0) * 1000;
-  applyEmergencyVisualState(sim);
+  world.preemptionBufferMs = Math.max(0, Math.round(Number(sim.preemption_buffer_sec || 0) * 1000));
+
   if (initializeCounts) {
     world.elapsedMs = 0;
     world.baselineEstimateMs = estimateBaselineTimeMs(
-      sim.initial_counts,
+      world.initialCounts,
       30,
       world.yellowMs,
       world.clearRateMin,
@@ -648,31 +911,50 @@ function applyDecision(payload, initializeCounts = false) {
     renderComparisonMetrics();
   }
 
-  modeValue.textContent = decision.mode || "-";
-  directionValue.textContent = decision.direction || "-";
-  durationValue.textContent = `${decision.duration || 0}s`;
-  actionValue.textContent = decision.action ?? "-";
-
-  renderModelOutputs(payload.model_outputs || {});
+  applyEmergencyVisualState(sim);
+  renderModelOutputs(payload?.model_outputs || {});
   renderCounts();
+
+  let selectedLane = sim.selected_lane || laneFromDirection(decision.direction);
+  const selectedDurationSec = clamp(
+    Math.round(Number(sim.selected_duration || decision.duration || 5)),
+    1,
+    60
+  );
+
+  const selectedQueue = world.counts[selectedLane] || 0;
+  if (!initializeCounts && selectedQueue <= 0 && totalCars() > 0) {
+    const fallbackLane = pickMockLane(world.counts);
+    if (fallbackLane !== selectedLane) {
+      selectedLane = fallbackLane;
+      setText(
+        simStatus,
+        `Deadlock guard: switched to ${laneLabels[selectedLane]} (selected lane had zero queue).`
+      );
+    }
+  }
+  world.laneTimings = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
+  world.laneTimings[selectedLane] = selectedDurationSec;
 
   if (
     world.preemptionBufferMs > 0 &&
     world.lastServedLane &&
-    world.lastServedLane !== sim.selected_lane
+    world.lastServedLane !== selectedLane
   ) {
     world.pendingDecision = {
-      lane: sim.selected_lane,
-      durationMs: (sim.selected_duration || 1) * 1000,
+      lane: selectedLane,
+      durationMs: selectedDurationSec * 1000,
     };
     world.assignedDurationMs = world.preemptionBufferMs;
-    simStatus.textContent =
-      `Emergency preemption buffer (${Math.round(world.preemptionBufferMs / 1000)}s) before switching.`;
+    setText(
+      simStatus,
+      `Emergency preemption buffer (${Math.round(world.preemptionBufferMs / 1000)}s) before switching.`
+    );
     enterGreen(world.lastServedLane);
   } else {
     world.pendingDecision = null;
-    world.assignedDurationMs = (sim.selected_duration || 1) * 1000;
-    enterGreen(sim.selected_lane);
+    world.assignedDurationMs = selectedDurationSec * 1000;
+    enterGreen(selectedLane);
   }
 
   renderTimingTable();
@@ -681,26 +963,20 @@ function applyDecision(payload, initializeCounts = false) {
 
 function startSimulation(payload) {
   applyDecision(payload, true);
-
-  if (animationId) {
-    window.cancelAnimationFrame(animationId);
-  }
+  if (animationId) window.cancelAnimationFrame(animationId);
   lastTs = 0;
   animationId = window.requestAnimationFrame(animationLoop);
 }
 
 function resetWorld() {
   runToken = 0;
-  if (animationId) {
-    window.cancelAnimationFrame(animationId);
-  }
+  if (animationId) window.cancelAnimationFrame(animationId);
   animationId = 0;
   lastTs = 0;
 
   world.counts = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
   world.initialCounts = { ...world.counts };
   world.movingCars = [];
-  world.sequence = [];
   world.sequenceCursor = 0;
   world.awaitingNext = false;
   world.waitingServer = false;
@@ -726,56 +1002,96 @@ function resetWorld() {
   renderCounts();
   updatePhaseText();
   renderTimingTable();
+  renderComparisonMetrics();
   drawScene();
 }
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  setMessage("Processing images and running orchestrator...");
-  simStatus.textContent = "Preparing simulation...";
-  runBtn.disabled = true;
-
-  runToken = Date.now();
-  const localToken = runToken;
-  const formData = new FormData(form);
-
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
+  let payload = null;
   try {
-    const response = await fetch("/api/run_cycle", {
-      method: "POST",
-      body: formData,
-    });
-
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || "Failed to run cycle");
-    }
-
-    if (localToken !== runToken) {
-      return;
-    }
-
-    startSimulation(payload);
-    setMessage("Cycle started. Animation is running.");
-  } catch (error) {
-    setMessage(error.message || "Unexpected error", true);
-    simStatus.textContent = "Simulation could not start.";
-  } finally {
-    runBtn.disabled = false;
+    payload = await response.json();
+  } catch (_ignored) {
+    payload = null;
   }
-});
+  if (!response.ok) {
+    const message = payload?.error || `${response.status} ${response.statusText}`.trim();
+    throw new Error(message || "Request failed");
+  }
+  return payload || {};
+}
+
+async function probeBackendStatus() {
+  setBackendStatus("Checking...", "is-warn");
+  setControlMode("Unknown", "is-warn");
+  try {
+    const status = await fetchJson("/api/status", { method: "GET" });
+    setBackendStatus("Online", "is-ok");
+    const mode = status?.mode ? String(status.mode) : "Unknown";
+    setControlMode(mode.toUpperCase(), "is-ok");
+  } catch (error) {
+    setBackendStatus("Offline", "is-error");
+    setControlMode("Unavailable", "is-warn");
+    setMessage(`Backend status check failed: ${error.message}`, true);
+  }
+}
+function refreshFileNameForInput(input) {
+  if (!input || !input.name) return;
+  const fileNameNode = byId(`fileName-${input.name}`);
+  if (!fileNameNode) return;
+  if (input.files && input.files.length > 0) {
+    setText(fileNameNode, input.files[0].name, "No file selected");
+  } else {
+    setText(fileNameNode, "No file selected", "No file selected");
+  }
+}
+
+function refreshAllFileNames() {
+  if (!form) return;
+  form.querySelectorAll("input[type='file'][name]").forEach((input) => {
+    refreshFileNameForInput(input);
+  });
+}
+
+function bindFileNameListeners() {
+  if (!form) return;
+  form.querySelectorAll("input[type='file'][name]").forEach((input) => {
+    input.addEventListener("change", () => {
+      refreshFileNameForInput(input);
+    });
+  });
+}
+
+function continueWithMock(reason, laneCounts) {
+  setRunMode("mock");
+  const payload = buildMockCyclePayload({
+    laneCounts,
+    currentActiveLane: world.lastServedLane,
+    reason,
+  });
+  applyDecision(payload, false);
+  renderCounts();
+  updatePhaseText();
+  renderComparisonMetrics();
+}
 
 async function requestNextCycle() {
-  if (world.waitingServer || world.finished || !world.awaitingNext) {
+  if (world.waitingServer || world.finished || !world.awaitingNext) return;
+
+  world.autoNextPending = false;
+
+  if (world.runMode === "mock") {
+    continueWithMock("mock_mode_active", { ...world.counts });
+    setMessage("Running simulated next-cycle inference.");
     return;
   }
 
-  world.autoNextPending = false;
   world.waitingServer = true;
   setMessage("Running next cycle inference...");
-  simStatus.textContent = "Waiting for next-cycle decision...";
+  setText(simStatus, "Waiting for next-cycle decision...");
 
   try {
-    const response = await fetch("/api/next_cycle", {
+    const payload = await fetchJson("/api/next_cycle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -784,37 +1100,77 @@ async function requestNextCycle() {
       }),
     });
 
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || "Failed to run next cycle");
-    }
-
     applyDecision(payload, false);
     renderCounts();
     updatePhaseText();
     renderComparisonMetrics();
     setMessage("Next cycle started.");
   } catch (error) {
-    setMessage(error.message || "Unexpected error", true);
-    simStatus.textContent = "Could not run next cycle.";
+    setMessage(`Live next-cycle failed: ${error.message}. Switched to simulated fallback.`, true);
+    continueWithMock("next_cycle_backend_failed", { ...world.counts });
+    setText(simStatus, "Backend unavailable. Continuing in simulated mode.");
   } finally {
     world.waitingServer = false;
   }
 }
 
-resetBtn.addEventListener("click", () => {
-  form.reset();
-  resetWorld();
-  modeValue.textContent = "-";
-  directionValue.textContent = "-";
-  durationValue.textContent = "-";
-  actionValue.textContent = "-";
-  renderModelOutputs({});
-  emergencyBanner.classList.add("hidden");
-  emergencyBanner.textContent = "";
-  simStatus.textContent = "Waiting for upload...";
-  setMessage("Form reset.");
-});
+if (form) {
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setMessage("Processing images and running orchestrator...");
+    setText(simStatus, "Preparing simulation...");
+    if (runBtn) runBtn.disabled = true;
 
+    runToken = Date.now();
+    const localToken = runToken;
+    const formData = new FormData(form);
+
+    try {
+      const payload = await fetchJson("/api/run_cycle", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (localToken !== runToken) return;
+      setRunMode("live");
+      startSimulation(payload);
+      setMessage("Live cycle started. Animation is running.");
+    } catch (error) {
+      if (localToken !== runToken) return;
+      const mockCounts = buildMockLaneCountsFromUpload(formData);
+      const payload = buildMockCyclePayload({
+        laneCounts: mockCounts,
+        reason: "run_cycle_backend_failed",
+      });
+      setRunMode("mock");
+      startSimulation(payload);
+      setMessage(`Live backend failed: ${error.message}. Running simulated fallback.`, true);
+      setText(simStatus, "Simulated fallback running.");
+    } finally {
+      if (runBtn) runBtn.disabled = false;
+    }
+  });
+}
+
+if (resetBtn) {
+  resetBtn.addEventListener("click", () => {
+    if (form) form.reset();
+    refreshAllFileNames();
+    resetWorld();
+    setRunMode("idle");
+    renderModelOutputs({});
+    if (emergencyBanner) {
+      emergencyBanner.classList.add("hidden");
+      emergencyBanner.textContent = "";
+    }
+    setText(simStatus, "Waiting for upload...");
+    setMessage("Form reset.");
+  });
+}
+
+setRunMode("idle");
 resetWorld();
 renderModelOutputs({});
+bindFileNameListeners();
+refreshAllFileNames();
+probeBackendStatus();

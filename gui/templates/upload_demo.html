@@ -18,9 +18,28 @@
         <header class="hero">
             <p class="eyebrow">Adaptive Traffic Signal Green Corridor</p>
             <h1>Upload Demo: YOLO to DQN</h1>
-            <p class="subtitle">Upload one image per lane, run the end-to-end controller, and watch top-down signal
-                simulation.</p>
+            <p class="subtitle">
+                Upload one image per lane, run controller pipeline, and watch live top-down simulation.
+            </p>
         </header>
+
+        <section class="panel status-panel">
+            <h2>System Status</h2>
+            <div class="status-strip">
+                <article class="status-chip is-warn" id="backendStatusChip">
+                    <span>Backend</span>
+                    <strong id="backendStatusValue">Checking...</strong>
+                </article>
+                <article class="status-chip is-warn" id="controlModeChip">
+                    <span>Control Mode</span>
+                    <strong id="controlModeValue">Unknown</strong>
+                </article>
+                <article class="status-chip is-warn" id="runModeChip">
+                    <span>Run Mode</span>
+                    <strong id="runModeValue">Idle</strong>
+                </article>
+            </div>
+        </section>
 
         <div class="dashboard-grid">
             <section class="panel upload-panel">
@@ -29,23 +48,31 @@
                     <label class="upload-card">
                         <span>North Lane</span>
                         <input type="file" name="laneN" accept="image/*" required>
+                        <small class="file-name" id="fileName-laneN">No file selected</small>
                     </label>
                     <label class="upload-card">
                         <span>South Lane</span>
                         <input type="file" name="laneS" accept="image/*" required>
+                        <small class="file-name" id="fileName-laneS">No file selected</small>
                     </label>
                     <label class="upload-card">
                         <span>East Lane</span>
                         <input type="file" name="laneE" accept="image/*" required>
+                        <small class="file-name" id="fileName-laneE">No file selected</small>
                     </label>
                     <label class="upload-card">
                         <span>West Lane</span>
                         <input type="file" name="laneW" accept="image/*" required>
+                        <small class="file-name" id="fileName-laneW">No file selected</small>
                     </label>
                     <label class="upload-card upload-card-wide">
                         <span>Siren Audio (WAV)</span>
                         <input type="file" name="sirenAudio" accept="audio/wav,audio/wave,.wav" required>
+                        <small class="file-name" id="fileName-sirenAudio">No file selected</small>
                     </label>
+                    <p class="upload-hint">
+                        Required: 4 lane images + 1 WAV file. If backend fails, demo auto-falls back to simulated mode.
+                    </p>
                     <div class="actions">
                         <button id="runBtn" type="submit">Start Demo</button>
                         <button id="resetBtn" type="button" class="ghost">Reset</button>

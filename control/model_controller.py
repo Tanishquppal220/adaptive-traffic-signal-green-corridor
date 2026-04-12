@@ -362,6 +362,12 @@ class ModelController:
                 "preemption_buffer_sec": 0,
             }
 
+        decision, empty_lane_guard = self._apply_empty_lane_guard(
+            decision=decision,
+            lane_counts=lane_counts,
+            emergency_detected=emergency_detected,
+        )
+
         self._last_emergency_active = emergency_detected
 
         return {
@@ -384,8 +390,77 @@ class ModelController:
                 "emergency_visual_detected": emergency_visual_detected,
                 "siren_detected": siren_detected,
                 "predictive_control": predictive_control,
+                "empty_lane_guard": empty_lane_guard,
             },
         }
+
+    def _apply_empty_lane_guard(
+        self,
+        decision: dict[str, Any],
+        lane_counts: dict[str, int],
+        emergency_detected: bool,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        selected_direction = str(decision.get("direction", "N")).strip().upper()
+        selected_lane = self._lane_from_direction(selected_direction)
+        selected_queue = int(lane_counts.get(selected_lane, 0))
+        max_queue = max(int(lane_counts.get(lane, 0)) for lane in LANE_KEYS)
+
+        diagnostics = {
+            "applied": False,
+            "reason": None,
+            "selected_lane_before": selected_lane,
+            "selected_lane_after": selected_lane,
+            "selected_queue_before": selected_queue,
+            "max_queue": max_queue,
+        }
+
+        if emergency_detected:
+            diagnostics["reason"] = "emergency_override_active"
+            return decision, diagnostics
+
+        if max_queue <= 0:
+            diagnostics["reason"] = "all_queues_empty"
+            return decision, diagnostics
+
+        if selected_queue > 0:
+            diagnostics["reason"] = "selected_lane_has_queue"
+            return decision, diagnostics
+
+        candidates = [
+            lane for lane in LANE_KEYS if int(lane_counts.get(lane, 0)) == max_queue
+        ]
+        fallback_lane = candidates[0] if candidates else selected_lane
+
+        if (
+            self._predictive_last_selected_lane in candidates
+            and len(candidates) > 1
+        ):
+            idx = candidates.index(self._predictive_last_selected_lane)
+            fallback_lane = candidates[(idx + 1) % len(candidates)]
+
+        fallback_direction = fallback_lane.replace("lane", "")
+        fallback_duration = max(
+            int(cfg.MIN_GREEN),
+            min(int(cfg.MAX_GREEN), int(decision.get("duration", cfg.MIN_GREEN))),
+        )
+        mode_prefix = str(decision.get("mode", self.mode))
+        guarded_decision = {
+            **{lane: 0 for lane in LANE_KEYS},
+            fallback_lane: fallback_duration,
+            "direction": fallback_direction,
+            "duration": fallback_duration,
+            "action": self._encode_decision_action(fallback_direction, fallback_duration),
+            "mode": f"{mode_prefix}-empty-lane-guard",
+        }
+
+        diagnostics.update(
+            {
+                "applied": True,
+                "reason": "selected_lane_empty_with_nonempty_alternative",
+                "selected_lane_after": fallback_lane,
+            }
+        )
+        return guarded_decision, diagnostics
 
     def _build_predictive_control_inputs(
         self,
