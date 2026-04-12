@@ -76,11 +76,14 @@ def _build_simulation_payload(result: dict, cycle_meta: dict[str, Any] | None = 
     emergency_active = emergency_status == "active"
     emergency_lane = str(emergency.get("emergency_lane") or "").strip() or None
     if emergency_active and emergency_lane not in LANE_KEYS:
-        emergency_direction = str(emergency.get("direction") or "").strip().upper()
+        emergency_direction = str(emergency.get(
+            "direction") or "").strip().upper()
         emergency_lane = DIRECTION_TO_LANE.get(emergency_direction)
-    emergency_visual_lane = str(emergency.get("emergency_lane") or "").strip() or None
+    emergency_visual_lane = str(emergency.get(
+        "emergency_lane") or "").strip() or None
     if emergency_visual_detected and emergency_visual_lane not in LANE_KEYS:
-        visual_direction = str(emergency.get("direction") or "").strip().upper()
+        visual_direction = str(emergency.get(
+            "direction") or "").strip().upper()
         emergency_visual_lane = DIRECTION_TO_LANE.get(visual_direction)
 
     emergency_release_reason = emergency.get("release_reason")
@@ -158,7 +161,8 @@ def _build_response(
         "emergency": {
             "detected": bool(emergency.get("detected", False)),
             "visual_detected": bool(
-                emergency.get("visual_detected", emergency.get("detected", False))
+                emergency.get("visual_detected",
+                              emergency.get("detected", False))
             ),
             "status": emergency.get("status"),
             "label": emergency.get("label"),
