@@ -13,7 +13,7 @@ dependencies = [
     "numpy>=2.0",
     "pyyaml>=6.0",
     # Density prediction models
-    "scikit-learn>=1.5",  # Required for trained density predictor models
+    "scikit-learn>=1.5", # Required for trained density predictor models
     "xgboost>=3.2.0",
     # RL signal controller
     "stable-baselines3>=2.3",
@@ -23,6 +23,7 @@ dependencies = [
     "flask-socketio>=5.6.1",
     "eventlet>=0.40.4",
     "tensorflow-cpu>=2.21.0",
+    "librosa>=0.11.0",
 ]
 
 [project.optional-dependencies]

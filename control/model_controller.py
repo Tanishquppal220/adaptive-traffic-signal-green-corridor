@@ -33,17 +33,33 @@ class ModelController:
         dqn_weights_path: str | Path | None = None,
         device: str = "cpu",
     ) -> None:
-        print("Model loading started...")
+        print("🚀 Model loading started...")
+
         self._traffic_detector = TrafficDetector()
+        traffic_status = "loaded" if self._traffic_detector.is_loaded else "not loaded"
+        print(f"🚘 TrafficDetector {traffic_status}")
+
         self._emergency_classifier = EmergencyClassifier()
+        emergency_status = "loaded" if self._emergency_classifier.is_loaded else "not loaded"
+        print(f"🚑 EmergencyClassifier {emergency_status}")
+
         self._siren_detector = SirenDetector()
+        siren_status = "loaded" if self._siren_detector.is_loaded else "not loaded"
+        print(f"🔊 SirenDetector {siren_status}")
+
         self._density_predictor = DensityPredictor()
+        density_status = "loaded" if self._density_predictor.is_loaded else "not loaded"
+        print(f"📈 DensityPredictor {density_status}")
+
         self._signal_controller = SignalController(
             weights_path=dqn_weights_path or Path(
                 "models") / "dqn_signal_optimizer.pt",
             device=device,
         )
-        print("Model loading completed.")
+        print(
+            f"🧠 SignalController initialized in {self._signal_controller.mode} mode")
+
+        print("✅ Model loading completed.")
         self._last_lane_counts = {k: 0 for k in LANE_KEYS}
         self._last_emergency_active = False
         self._predictive_ema_counts = {lane: 0.0 for lane in LANE_KEYS}
@@ -184,8 +200,49 @@ class ModelController:
             raise ValueError(
                 "No cached cycle context. Run /api/run_cycle first.")
 
+        lane_counts = normalize_lane_counts(lane_counts)
+        emergency_override = {**(self._cached_emergency_override or {})}
+        siren_override = {**(self._cached_siren_detection or {})}
+
+        cached_emergency_lane = str(
+            emergency_override.get("emergency_lane") or ""
+        ).strip()
+        if cached_emergency_lane not in LANE_KEYS:
+            cached_direction = str(
+                emergency_override.get("direction") or ""
+            ).strip().upper()
+            cached_emergency_lane = DIRECTION_TO_LANE.get(cached_direction, "")
+
+        cached_override_active = bool(
+            emergency_override.get("detected", False)
+        ) and bool(siren_override.get("detected", False))
+        emergency_lane_cleared = (
+            cached_override_active
+            and cached_emergency_lane in LANE_KEYS
+            and int(lane_counts.get(cached_emergency_lane, 0)) <= 0
+        )
+
+        if emergency_lane_cleared:
+            emergency_override = {
+                **emergency_override,
+                "detected": False,
+                "status": "cleared",
+                "release_reason": "emergency_lane_cleared",
+                "direction": None,
+                "emergency_lane": None,
+                "visual_detected": False,
+                "siren_detected": False,
+            }
+            siren_override = {
+                **siren_override,
+                "detected": False,
+                "confidence": 0.0,
+            }
+            self._cached_emergency_override = {**emergency_override}
+            self._cached_siren_detection = {**siren_override}
+
         detection_payload = {
-            "lane_counts": normalize_lane_counts(lane_counts),
+            "lane_counts": lane_counts,
             "direction_counts": lane_counts_to_direction_counts(lane_counts),
             "boxes": [],
             "total": int(sum(max(0, int(v)) for v in lane_counts.values())),
@@ -196,8 +253,8 @@ class ModelController:
             lane_counts=lane_counts,
             frame=None,
             detection=detection_payload,
-            emergency_override={**(self._cached_emergency_override or {})},
-            siren_override={**(self._cached_siren_detection or {})},
+            emergency_override=emergency_override,
+            siren_override=siren_override,
             current_active_lane=current_active_lane,
             cache_cycle_context=False,
         )
@@ -400,7 +457,8 @@ class ModelController:
         lane_counts: dict[str, int],
         emergency_detected: bool,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        selected_direction = str(decision.get("direction", "N")).strip().upper()
+        selected_direction = str(decision.get(
+            "direction", "N")).strip().upper()
         selected_lane = self._lane_from_direction(selected_direction)
         selected_queue = int(lane_counts.get(selected_lane, 0))
         max_queue = max(int(lane_counts.get(lane, 0)) for lane in LANE_KEYS)

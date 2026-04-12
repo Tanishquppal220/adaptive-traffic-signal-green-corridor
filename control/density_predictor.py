@@ -75,19 +75,23 @@ class DensityPredictor:
             self.update_history(lane_counts)
 
         if not self._history:
-            return {
+            result = {
                 "predictions": {"N": 0.0, "S": 0.0, "E": 0.0, "W": 0.0},
                 "mode": "empty-history",
                 "horizon_sec": DENSITY_PREDICTION_HORIZON_SEC,
             }
+            print("DensityPredictor.predict:", result)
+            return result
 
         if not self._models:
             latest = self._history[-1]
-            return {
+            result = {
                 "predictions": {d: float(latest.get(d, 0.0)) for d in ("N", "S", "E", "W")},
                 "mode": "heuristic",
                 "horizon_sec": DENSITY_PREDICTION_HORIZON_SEC,
             }
+            print("DensityPredictor.predict:", result)
+            return result
 
         features = self._prepare_features()
         dmatrix = xgb.DMatrix(features)
@@ -103,11 +107,13 @@ class DensityPredictor:
             predictions[direction] = float(
                 np.clip(pred, 0.0, DENSITY_MAX_CLIP))
 
-        return {
+        result = {
             "predictions": predictions,
             "mode": "xgboost",
             "horizon_sec": DENSITY_PREDICTION_HORIZON_SEC,
         }
+        print("DensityPredictor.predict:", result)
+        return result
 
     def _prepare_features(self) -> np.ndarray:
         lag_block: list[float] = []
