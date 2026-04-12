@@ -53,22 +53,26 @@ class TrafficDetector:
 
     def detect(self, frame: np.ndarray) -> dict[str, Any]:
         if frame is None or frame.size == 0:
-            return {
+            result = {
                 "lane_counts": direction_counts_to_lane_counts({"N": 0, "S": 0, "E": 0, "W": 0}),
                 "direction_counts": {"N": 0, "S": 0, "E": 0, "W": 0},
                 "boxes": [],
                 "total": 0,
                 "mode": "invalid-frame",
             }
+            print("TrafficDetector.detect:", result)
+            return result
 
         if not self.is_loaded:
-            return {
+            result = {
                 "lane_counts": direction_counts_to_lane_counts({"N": 0, "S": 0, "E": 0, "W": 0}),
                 "direction_counts": {"N": 0, "S": 0, "E": 0, "W": 0},
                 "boxes": [],
                 "total": 0,
                 "mode": "unavailable",
             }
+            print("TrafficDetector.detect:", result)
+            return result
 
         height, width = frame.shape[:2]
         direction_counts = {"N": 0, "S": 0, "E": 0, "W": 0}
@@ -98,10 +102,12 @@ class TrafficDetector:
                     }
                 )
 
-        return {
+        result = {
             "lane_counts": direction_counts_to_lane_counts(direction_counts),
             "direction_counts": direction_counts,
-            "boxes": decoded_boxes,
+            # "boxes": decoded_boxes,
             "total": int(sum(direction_counts.values())),
             "mode": "yolo",
         }
+        print("TrafficDetector.detect:", result)
+        return result

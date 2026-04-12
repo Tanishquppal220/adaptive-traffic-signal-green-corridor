@@ -109,16 +109,22 @@ class EmergencyClassifier:
         frame: np.ndarray,
     ) -> dict[str, Any]:
         if frame is None or frame.size == 0:
-            return self._empty_result(mode="invalid-frame")
+            result = self._empty_result(mode="invalid-frame")
+            print("EmergencyClassifier.classify:", result)
+            return result
         if not self.is_loaded:
-            return self._empty_result(mode="unavailable")
+            result = self._empty_result(mode="unavailable")
+            print("EmergencyClassifier.classify:", result)
+            return result
 
         result = self._model.predict(
             frame,
             conf=self._confidence_threshold,
             verbose=False,
         )[0]
-        return self._classify_from_boxes(frame, result)
+        output = self._classify_from_boxes(frame, result)
+        print("EmergencyClassifier.classify:", output)
+        return output
 
     def _classify_from_boxes(
         self,

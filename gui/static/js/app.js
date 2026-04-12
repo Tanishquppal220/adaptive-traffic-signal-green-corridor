@@ -77,6 +77,7 @@ const world = {
   pendingDecision: null,
   preemptionBufferMs: 0,
   emergencyLane: null,
+  emergencyVisualLane: null,
   emergencyActive: false,
   emergencyCarSpawned: false,
   finished: false,
@@ -254,7 +255,10 @@ function renderModelOutputs(modelOutputs = {}) {
     setText(sirenConfidenceNode, "N/A");
     setText(sirenSampleRateNode, "N/A");
   } else {
-    setText(emergencyDetectedNode, emergency.detected ? "YES" : "NO");
+    const emergencyDetectedText = emergency.detected
+      ? "YES"
+      : (emergency.visual_detected ? "VISUAL ONLY" : "NO");
+    setText(emergencyDetectedNode, emergency.cached ? `${emergencyDetectedText} (cached)` : emergencyDetectedText);
     setText(emergencyLabelNode, emergency.label || "-");
     setText(emergencyConfidenceNode, fmtFixed(emergency.confidence));
     if (emergency.lane_counts) {
@@ -269,11 +273,14 @@ function renderModelOutputs(modelOutputs = {}) {
       setText(emergencyDirectionNode, emergency.direction || emergency.status || "-", "-");
     }
 
-    setText(sirenDetectedNode, siren.detected ? "YES" : "NO");
+    const sirenDetectedText = siren.detected ? "YES" : "NO";
+    setText(sirenDetectedNode, siren.cached ? `${sirenDetectedText} (cached)` : sirenDetectedText);
     setText(sirenConfidenceNode, fmtFixed(siren.confidence));
     setText(
       sirenSampleRateNode,
-      asFinite(siren.sample_rate) !== null ? `${Math.round(asFinite(siren.sample_rate))}Hz` : "-",
+      asFinite(siren.sample_rate) !== null
+        ? `${Math.round(asFinite(siren.sample_rate))}Hz${siren.cached ? " (cached)" : ""}`
+        : (siren.cached ? "cached" : "-"),
       "-"
     );
   }
@@ -340,18 +347,34 @@ function estimateBaselineTimeMs(counts, greenDurationSec, yellowMs, clearRateMin
 }
 
 function applyEmergencyVisualState(sim) {
-  if (!emergencyBanner) return;
-
   if (world.runMode === "mock") {
-    emergencyBanner.classList.remove("hidden");
-    emergencyBanner.textContent = "Simulated mode: emergency and siren outputs are fallback values.";
+    world.emergencyLane = null;
+    world.emergencyVisualLane = null;
+    world.emergencyActive = false;
+    if (emergencyBanner) {
+      emergencyBanner.classList.remove("hidden");
+      emergencyBanner.textContent = "Simulated mode: emergency and siren outputs are fallback values.";
+    }
     return;
   }
 
-  const emergencyActive = sim.emergency_status === "active" || sim.emergency_detected;
+  const emergencyActive = sim.emergency_active === true || sim.emergency_status === "active";
+  const emergencyVisualDetected =
+    sim.emergency_visual_detected === true || sim.emergency_detected === true;
+  const nextEmergencyLane = emergencyActive ? (sim.emergency_lane || null) : null;
+  const nextEmergencyVisualLane = emergencyVisualDetected
+    ? (sim.emergency_visual_lane || sim.emergency_lane || null)
+    : null;
+
+  if (world.emergencyLane !== nextEmergencyLane) {
+    world.emergencyCarSpawned = false;
+  }
+
   world.emergencyActive = emergencyActive;
-  world.emergencyLane = emergencyActive ? sim.selected_lane : null;
-  world.emergencyCarSpawned = false;
+  world.emergencyLane = nextEmergencyLane;
+  world.emergencyVisualLane = nextEmergencyVisualLane;
+
+  if (!emergencyBanner) return;
 
   if (sim.emergency_status === "active") {
     emergencyBanner.classList.remove("hidden");
@@ -433,11 +456,45 @@ function drawRoundedRect(x, y, w, h, r) {
   ctx.closePath();
 }
 
+function drawEmergencyCross(cx, cy, width, height, color = "#ffffff") {
+  if (!ctx) return;
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - width / 2, cy - height / 6, width, height / 3);
+  ctx.fillRect(cx - width / 6, cy - height / 2, width / 3, height);
+}
+
 function drawCar(x, y, angle, color, emergencyCar = false) {
   if (!ctx) return;
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
+
+  if (emergencyCar) {
+    ctx.fillStyle = "#8f1714";
+    drawRoundedRect(-16, -10, 32, 20, 5);
+    ctx.fill();
+
+    ctx.fillStyle = color;
+    drawRoundedRect(-15, -9, 30, 18, 4);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(255,255,255,0.75)";
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.fillRect(-9, -6.5, 18, 4);
+
+    drawEmergencyCross(0, 1, 12, 12);
+
+    ctx.fillStyle = "#9ad8ff";
+    ctx.fillRect(-5, -11.5, 10, 3);
+    ctx.fillStyle = "#dff4ff";
+    ctx.fillRect(-4, -10.8, 8, 1.4);
+
+    ctx.restore();
+    return;
+  }
 
   ctx.fillStyle = color;
   drawRoundedRect(-12, -7, 24, 14, 4);
@@ -445,11 +502,6 @@ function drawCar(x, y, angle, color, emergencyCar = false) {
 
   ctx.fillStyle = "rgba(255,255,255,0.62)";
   ctx.fillRect(-7, -5, 14, 3);
-
-  if (emergencyCar) {
-    ctx.fillStyle = "#87cefa";
-    ctx.fillRect(-3, -9, 6, 2);
-  }
   ctx.restore();
 }
 
@@ -539,7 +591,14 @@ function drawScene() {
     const renderCount = Math.min(count, 18);
     for (let i = 0; i < renderCount; i += 1) {
       const pose = queueCarPose(lane, i, g);
-      drawCar(pose.x, pose.y, pose.a, "#4a90d9");
+      const drawEmergencyQueueCar = i === 0 && world.emergencyVisualLane === lane;
+      drawCar(
+        pose.x,
+        pose.y,
+        pose.a,
+        drawEmergencyQueueCar ? "#d93025" : "#4a90d9",
+        drawEmergencyQueueCar
+      );
     }
     if (count > renderCount) {
       const pose = queueCarPose(lane, renderCount, g);
@@ -674,10 +733,13 @@ function tickMovingCars(dtMs) {
   if (world.emergencyActive && hadEmergencyCar && !hasEmergencyCar) {
     world.emergencyActive = false;
     world.emergencyLane = null;
+    world.emergencyVisualLane = null;
     if (emergencyBanner && emergencyBanner.textContent) {
       emergencyBanner.classList.add("hidden");
       emergencyBanner.textContent = "";
     }
+  } else if (!hasEmergencyCar) {
+    world.emergencyVisualLane = null;
   }
 }
 
@@ -790,6 +852,7 @@ function buildMockCyclePayload({ laneCounts, currentActiveLane = null, reason = 
       action,
       emergency: {
         detected: false,
+        visual_detected: false,
         status: "simulated",
         label: null,
         confidence: 0,
@@ -822,7 +885,12 @@ function buildMockCyclePayload({ laneCounts, currentActiveLane = null, reason = 
       decision_scope: "single_lane",
       active_lane_only_duration_applied: true,
       mode: "mock-fallback",
+      context_cached: false,
       emergency_detected: false,
+      emergency_visual_detected: false,
+      emergency_active: false,
+      emergency_lane: null,
+      emergency_visual_lane: null,
       emergency_status: "simulated",
       emergency_release_reason: reason,
       emergency_message: "Simulated fallback mode active.",
@@ -857,10 +925,13 @@ function buildMockCyclePayload({ laneCounts, currentActiveLane = null, reason = 
       },
       emergency: {
         detected: false,
+        visual_detected: false,
         status: "simulated",
         label: null,
         confidence: null,
         direction: null,
+        gated_by_siren: false,
+        cached: false,
         lane_counts: { laneN: 0, laneS: 0, laneE: 0, laneW: 0 },
         message: "Simulated fallback mode.",
       },
@@ -869,6 +940,7 @@ function buildMockCyclePayload({ laneCounts, currentActiveLane = null, reason = 
         confidence: null,
         mode: "simulated",
         sample_rate: null,
+        cached: false,
       },
       dqn: {
         mode: "mock-fallback",
@@ -995,6 +1067,7 @@ function resetWorld() {
   world.laneTimings = {};
   world.phaseCycles = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
   world.emergencyLane = null;
+  world.emergencyVisualLane = null;
   world.emergencyActive = false;
   world.emergencyCarSpawned = false;
   world.finished = false;

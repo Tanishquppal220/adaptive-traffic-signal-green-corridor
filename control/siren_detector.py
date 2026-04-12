@@ -54,19 +54,26 @@ class SirenDetector:
 
     def detect(self, audio_bytes: bytes | None) -> dict[str, Any]:
         if audio_bytes is None:
-            return self._empty_result(mode="missing-audio")
+            result = self._empty_result(mode="missing-audio")
+            print("SirenDetector.detect:", result)
+            return result
         if not audio_bytes:
-            return self._empty_result(mode="empty-audio")
+            result = self._empty_result(mode="empty-audio")
+            print("SirenDetector.detect:", result)
+            return result
 
         decoded = self._decode_audio(audio_bytes)
         if decoded is None:
-            return self._empty_result(mode="invalid-audio")
+            result = self._empty_result(mode="invalid-audio")
+            print("SirenDetector.detect:", result)
+            return result
 
         audio_signal, sample_rate = decoded
         if audio_signal.size == 0:
             return self._empty_result(mode="invalid-audio")
 
-        min_required = max(1, int(SIREN_MIN_DURATION_SEC)) * max(1, sample_rate)
+        min_required = max(1, int(SIREN_MIN_DURATION_SEC)) * \
+            max(1, sample_rate)
         if audio_signal.size < min_required:
             # Keep behavior deterministic for short clips in demos.
             padded = np.zeros(min_required, dtype=np.float32)
@@ -74,30 +81,40 @@ class SirenDetector:
             audio_signal = padded
 
         if not self.is_loaded:
-            return {
+            result = {
                 **self._empty_result(mode="unavailable"),
                 "error": self._error,
                 "sample_rate": sample_rate,
             }
+            print("SirenDetector.detect:", result)
+            return result
 
         try:
             features = self._prepare_model_input(audio_signal)
-            self._interpreter.set_tensor(self._input_details[0]["index"], features)
+            self._interpreter.set_tensor(
+                self._input_details[0]["index"], features)
             self._interpreter.invoke()
-            output = self._interpreter.get_tensor(self._output_details[0]["index"])
+            output = self._interpreter.get_tensor(
+                self._output_details[0]["index"])
             confidence, detected = self._parse_output(output)
-            return {
+            result = {
                 "detected": detected,
                 "confidence": confidence,
                 "mode": "tflite",
                 "sample_rate": sample_rate,
             }
+            if(detected):
+                # print("Siren detected with confidence:", confidence)
+                print("SirenDetector.detect:", result)
+            return result
         except Exception as exc:
-            return {
+            result = {
                 **self._empty_result(mode="inference-error"),
                 "error": str(exc),
                 "sample_rate": sample_rate,
             }
+            print("SirenDetector.detect:", result)
+            return result
 
     def _load_model(self) -> None:
         if not self._model_path.exists():
@@ -134,7 +151,8 @@ class SirenDetector:
             return
 
         try:
-            self._interpreter = interpreter_cls(model_path=str(self._model_path))
+            self._interpreter = interpreter_cls(
+                model_path=str(self._model_path))
             self._interpreter.allocate_tensors()
             self._input_details = self._interpreter.get_input_details()
             self._output_details = self._interpreter.get_output_details()
@@ -176,7 +194,8 @@ class SirenDetector:
             audio = audio.reshape(-1, channels).mean(axis=1)
 
         if sample_rate != self._sample_rate:
-            audio = self._resample_linear(audio, sample_rate, self._sample_rate)
+            audio = self._resample_linear(
+                audio, sample_rate, self._sample_rate)
             sample_rate = self._sample_rate
 
         audio = np.clip(audio, -1.0, 1.0).astype(np.float32)
@@ -198,33 +217,36 @@ class SirenDetector:
         return np.interp(target_x, source_x, signal).astype(np.float32)
 
     def _prepare_model_input(self, signal: np.ndarray) -> np.ndarray:
-        detail = self._input_details[0]
-        shape = detail.get("shape", [])
-        if not isinstance(shape, np.ndarray):
-            shape = np.asarray(shape)
-        shape = shape.astype(int).tolist()
+        import librosa
 
-        # Replace dynamic dims with 1 for shaping calculations.
-        normalized_shape = [1 if dim <= 0 else dim for dim in shape]
-        target_elems = int(np.prod(normalized_shape)) if normalized_shape else signal.size
+        # Generate mel spectrogram (same as training)
+        mel_spec = librosa.feature.melspectrogram(
+            y=signal,
+            sr=self._sample_rate,
+            n_mels=128,
+            n_fft=2048,
+            hop_length=512,
+            fmin=200,
+            fmax=8000,
+            power=2.0
+        )
 
-        if target_elems <= 0:
-            target_elems = signal.size
+        log_mel = librosa.power_to_db(mel_spec, ref=np.max)
 
-        if signal.size < target_elems:
-            padded = np.zeros(target_elems, dtype=np.float32)
-            padded[: signal.size] = signal
-            signal = padded
-        elif signal.size > target_elems:
-            signal = signal[:target_elems]
+        # Normalize
+        log_mel = (log_mel - log_mel.min()) / \
+            (log_mel.max() - log_mel.min() + 1e-8)
 
-        if normalized_shape:
-            features = signal.reshape(normalized_shape).astype(np.float32)
+        # Fix shape (128, 131)
+        if log_mel.shape[1] < 131:
+            pad = 131 - log_mel.shape[1]
+            log_mel = np.pad(log_mel, ((0, 0), (0, pad)))
         else:
-            features = signal.astype(np.float32)
+            log_mel = log_mel[:, :131]
 
-        return features
-
+        # Add batch + channel dims
+        return log_mel[np.newaxis, ..., np.newaxis].astype(np.float32)
+    
     def _parse_output(self, output: np.ndarray) -> tuple[float, bool]:
         flat = np.asarray(output, dtype=np.float32).reshape(-1)
         if flat.size == 0:

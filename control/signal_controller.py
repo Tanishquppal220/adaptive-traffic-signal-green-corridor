@@ -132,14 +132,14 @@ class SignalController:
 
         if self._use_dqn:
             action, direction, duration = self._dqn_decide(counts)
-            
+
             # ── 1. direction safeguard (shielding) ───────────────────────
-            # Prevent the DQN picking a practically empty lane when another 
+            # Prevent the DQN picking a practically empty lane when another
             # lane is heavily backed up.
             busiest_direction = int(np.argmax(counts))
             busiest_queue = float(counts[busiest_direction])
             chosen_queue = float(counts[direction])
-            
+
             if chosen_queue < (busiest_queue * 0.5) and busiest_queue > 0:
                 logger.info(
                     "Direction shield applied: DQN picked %s (q=%d), overriding to busiest %s (q=%d)",
@@ -161,10 +161,10 @@ class SignalController:
                         DIR_LABELS[direction], duration, int(queue_in_chosen),
                     )
                     duration = min_duration
-            
+
             # Repackage potentially shielded action
             action = encode_action(direction, duration)
-            
+
         else:
             action, direction, duration = self._proportional_decide(counts)
 
@@ -172,13 +172,16 @@ class SignalController:
         green_times = {key: 0 for key in LANE_KEYS}
         green_times[LANE_KEYS[direction]] = duration
 
-        return {
+        decision = {
             **green_times,
             "direction": DIR_LABELS[direction],
             "duration":  duration,
             "action":    action,
             "mode":      self.mode,
         }
+        print("SignalController.decide: lane_counts=",
+              lane_counts, "decision=", decision)
+        return decision
 
     # ── online learning hook ──────────────────────────────────────────────────
 
