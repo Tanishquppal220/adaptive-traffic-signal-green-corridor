@@ -220,12 +220,23 @@ function renderTimingTable() {
   });
 }
 
-function renderModelOutputs(modelOutputs = {}) {
+function renderDqnOutputs(dqn = {}) {
+  setText(dqnActionNode, dqn.action ?? "-", "-");
+  setText(dqnDirectionNode, dqn.direction || "-", "-");
+  setText(dqnDurationNode, asFinite(dqn.duration) !== null ? `${Math.round(dqn.duration)}s` : "-", "-");
+}
+
+function renderModelOutputs(modelOutputs = {}, updateAll = true) {
+  const dqn = modelOutputs.dqn || {};
+  if (!updateAll) {
+    renderDqnOutputs(dqn);
+    return;
+  }
+
   const detector = modelOutputs.detector || {};
   const density = modelOutputs.density || {};
   const emergency = modelOutputs.emergency || {};
   const siren = modelOutputs.siren || {};
-  const dqn = modelOutputs.dqn || {};
 
   const simulated = world.runMode === "mock" || String(dqn.mode || "").includes("mock");
 
@@ -285,9 +296,7 @@ function renderModelOutputs(modelOutputs = {}) {
     );
   }
 
-  setText(dqnActionNode, dqn.action ?? "-", "-");
-  setText(dqnDirectionNode, dqn.direction || "-", "-");
-  setText(dqnDurationNode, asFinite(dqn.duration) !== null ? `${Math.round(dqn.duration)}s` : "-", "-");
+  renderDqnOutputs(dqn);
   renderComparisonMetrics();
 }
 
@@ -984,7 +993,6 @@ function applyDecision(payload, initializeCounts = false) {
   world.clearRateMin = clamp(Math.round(Number(sim.clear_rate_min) || 1), 1, 5);
   world.clearRateMax = clamp(Math.round(Number(sim.clear_rate_max) || 2), world.clearRateMin, 8);
   world.yellowMs = clamp(Math.round(Number(sim.yellow_ms) || 900), 300, 5000);
-  world.laneTimings = { ...(sim.lane_timings || {}) };
   world.seededRand = mulberry32(sim.seed || Date.now());
   world.preemptionBufferMs = Math.max(0, Math.round(Number(sim.preemption_buffer_sec || 0) * 1000));
 
@@ -997,11 +1005,12 @@ function applyDecision(payload, initializeCounts = false) {
       world.clearRateMin,
       world.clearRateMax
     );
+    world.laneTimings = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
     renderComparisonMetrics();
   }
 
   applyEmergencyVisualState(sim);
-  renderModelOutputs(payload?.model_outputs || {});
+  renderModelOutputs(payload?.model_outputs || {}, initializeCounts);
   renderCounts();
 
   let selectedLane = sim.selected_lane || laneFromDirection(decision.direction);
@@ -1022,8 +1031,7 @@ function applyDecision(payload, initializeCounts = false) {
       );
     }
   }
-  world.laneTimings = { laneN: 0, laneS: 0, laneE: 0, laneW: 0 };
-  world.laneTimings[selectedLane] = selectedDurationSec;
+  world.laneTimings[selectedLane] = (world.laneTimings[selectedLane] || 0) + selectedDurationSec;
 
   if (
     world.preemptionBufferMs > 0 &&
