@@ -1,7 +1,5 @@
 # How i want the demo logic to work:
 
-**DO NOT MOVE TO NEXT STEP WITH OUT CLICK OF A BUTTON IN THE GUI AS IT WOULD GIVE ME TIME TO EXPLAIN**
-
 1. User uploads 4 images (1 for each direction) and a audio file (for emergency vehicle detection)
 2. User Click start demo
 3. images are passed to the model orchestrator

@@ -35,19 +35,19 @@ from __future__ import annotations
 import numpy as np
 
 # ── timing constants (keep in sync with config.py) ────────────────────────────
-MIN_GREEN    = 5    # shortest legal green  (seconds)
-MAX_GREEN    = 60   # longest  legal green  (seconds)
-N_DURATIONS  = MAX_GREEN - MIN_GREEN + 1   # 56  (5, 6, 7 … 60)
+MIN_GREEN = 5    # shortest legal green  (seconds)
+MAX_GREEN = 60   # longest  legal green  (seconds)
+N_DURATIONS = MAX_GREEN - MIN_GREEN + 1   # 56  (5, 6, 7 … 60)
 N_DIRECTIONS = 4
-ACTION_SIZE  = N_DIRECTIONS * N_DURATIONS  # 224
+ACTION_SIZE = N_DIRECTIONS * N_DURATIONS  # 224
 
 # ── simulation knobs ───────────────────────────────────────────────────────────
 ARRIVAL_RATE_MEAN = 0.8    # vehicles / second / lane  (Poisson λ, off-peak)
 ARRIVAL_RATE_PEAK = 2.0    # vehicles / second / lane  (peak hour)
-DISCHARGE_RATE    = 1.5    # vehicles / second leaving the green lane
-MAX_QUEUE         = 30     # hard cap on queue length per lane
-WAITING_PENALTY   = 0.05   # reward deduction per waiting vehicle
-DURATION_COST     = 0.001  # reward deduction per second of chosen green
+DISCHARGE_RATE = 1.5    # vehicles / second leaving the green lane
+MAX_QUEUE = 30     # hard cap on queue length per lane
+WAITING_PENALTY = 0.01   # reward deduction per waiting vehicle
+DURATION_COST = 0.001  # reward deduction per second of chosen green
 MAX_VEHICLES_NORM = 30.0   # divisor used to normalise counts → [0, 1]
 
 
@@ -70,7 +70,7 @@ def decode_action(action: int) -> tuple[int, int]:
         f"Action {action} is out of range [0, {ACTION_SIZE - 1}]"
     )
     direction = action // N_DURATIONS
-    duration  = (action  % N_DURATIONS) + MIN_GREEN
+    duration = (action % N_DURATIONS) + MIN_GREEN
     return direction, duration
 
 
@@ -118,19 +118,19 @@ class TrafficEnv:
 
     def __init__(
         self,
-        max_steps: int        = 100,
-        peak_hour: bool       = False,
+        max_steps: int = 100,
+        peak_hour: bool = False,
         seed:      int | None = None,
     ) -> None:
-        self.max_steps    = max_steps
+        self.max_steps = max_steps
         self.arrival_rate = ARRIVAL_RATE_PEAK if peak_hour else ARRIVAL_RATE_MEAN
-        self.rng          = np.random.default_rng(seed)
+        self.rng = np.random.default_rng(seed)
 
         # mutable state — initialised properly in reset()
         self.queues:        np.ndarray = np.zeros(4, dtype=np.float32)
-        self.current_phase: int        = 0
-        self.elapsed:       float      = 0.0
-        self.step_count:    int        = 0
+        self.current_phase: int = 0
+        self.elapsed:       float = 0.0
+        self.step_count:    int = 0
 
     # ── public interface ───────────────────────────────────────────────────────
 
@@ -162,8 +162,8 @@ class TrafficEnv:
             self.queues = self.rng.integers(0, 11, size=4).astype(np.float32)
 
         self.current_phase = int(self.rng.integers(0, 4))
-        self.elapsed       = 0.0
-        self.step_count    = 0
+        self.elapsed = 0.0
+        self.step_count = 0
         return self._get_state()
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, dict]:
@@ -199,28 +199,36 @@ class TrafficEnv:
         self.queues = np.clip(self.queues + arrivals, 0, MAX_QUEUE)
 
         # 2. Discharge the green lane ──────────────────────────────────────────
-        queue_before  = float(self.queues[direction])
+        queue_before = float(self.queues[direction])
         max_discharge = DISCHARGE_RATE * duration
-        discharged    = float(min(queue_before, max_discharge))
+        discharged = float(min(queue_before, max_discharge))
         self.queues[direction] = max(0.0, self.queues[direction] - discharged)
 
         # 3. Reward ────────────────────────────────────────────────────────────
         #    throughput = fraction of the QUEUE cleared (not fraction of
         #    discharge capacity). This incentivises picking a duration long
         #    enough to actually drain the chosen lane.
-        throughput    = discharged / max(1.0, queue_before)
+        throughput = discharged / max(1.0, queue_before)
         total_waiting = float(self.queues.sum())
+
+        # 🔥 new idea: scale penalty with congestion
+        congestion = total_waiting / 20.0   # normalize (~0–6)
+
         reward = (
-              throughput
-            - WAITING_PENALTY * total_waiting
-            - DURATION_COST   * duration
+            +3.0 * throughput
+            - (0.02 + 0.02 * congestion) * total_waiting   # adaptive penalty
+            - 0.0001 * duration
         )
 
+
+        reward = reward / 5.0
+        reward = max(-1, min(1, reward))
+
         # 4. Update phase tracking ─────────────────────────────────────────────
-        self.current_phase  = direction
-        self.elapsed       += duration
-        self.step_count    += 1
-        done                = self.step_count >= self.max_steps
+        self.current_phase = direction
+        self.elapsed += duration
+        self.step_count += 1
+        done = self.step_count >= self.max_steps
 
         info = {
             "direction":     self.DIRECTIONS[direction],

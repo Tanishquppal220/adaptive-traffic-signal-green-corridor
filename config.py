@@ -85,14 +85,14 @@ MAX_VEHICLES_NORM = 30.0
 GREEN_DURATIONS: list[int] = [10, 20, 30, 40, 50, 60]
 
 # ── DQN Hyperparameters ───────────────────────────────────────────────────────
-DQN_TRAINING_LEARNING_RATE = 1e-3
-GAMMA = 0.95  # discount factor
+DQN_TRAINING_LEARNING_RATE = 5e-4
+GAMMA = 0.90  # discount factor
 EPSILON_START = 1.0  # full exploration at the start
 EPSILON_END = 0.05  # minimum exploration floor
-EPSILON_DECAY = 0.9995  # multiplicative decay per step
+EPSILON_DECAY = 0.9997  # multiplicative decay per step
 DQN_TRAINING_BUFFER_SIZE = 50_000
 DQN_TRAINING_BATCH_SIZE = 64
-TARGET_UPDATE_FREQ = 500  # steps between hard target-network sync
+TARGET_UPDATE_FREQ = 200  # steps between hard target-network sync
 
 # ── DQN Online / Runtime Hyperparameters ─────────────────────────────────────
 DQN_ONLINE_LEARNING_RATE = 1e-4
@@ -135,14 +135,6 @@ EMERGENCY_PREEMPTION_BUFFER_SEC = 3
 # If emergency lane queue is already low, avoid wasting long green windows.
 EMERGENCY_LOW_QUEUE_THRESHOLD = 4
 EMERGENCY_LOW_QUEUE_MAX_SEC = 12
-
-# Fairness / anti-starvation policy
-FAIRNESS_DEFAULT_MODE: str = "soft"  # off | soft | hard
-FAIRNESS_WAIT_THRESHOLD_SEC: float = 30.0
-FAIRNESS_MISSED_TURNS_THRESHOLD: int = 3
-FAIRNESS_SOFT_WAIT_WEIGHT: float = 0.35
-FAIRNESS_SOFT_MISSED_WEIGHT: float = 0.45
-FAIRNESS_SOFT_OVERRIDE_MARGIN: float = 2.0
 
 # Synthetic runtime tuning
 SYNTHETIC_INTENSITY_MIN: float = 0.2
